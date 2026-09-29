@@ -1,0 +1,20 @@
+name: check
+
+# push 与 PR 上都跑 `make check`：py_compile + 规则一致性 + 夹具回归 + 发布闸门。
+# 只用标准库（夹具是静态文本、校验器不联网），所以不装 faster-whisper 之类的重依赖。
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: python 版本
+        run: python3 -V
+      - name: make check
+        run: make check

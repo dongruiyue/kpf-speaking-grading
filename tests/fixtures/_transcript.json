@@ -1,0 +1,544 @@
+{
+  "meta": {
+    "engine": "fixture",
+    "model": "anonymous-fixture",
+    "duration": 78.4,
+    "file": "fixture://anonymous/student-a-sport-monologue",
+    "student": "学生甲",
+    "class": "FCE-A",
+    "level": "FCE",
+    "transcribed_at": "2026-09-29T00:00:00",
+    "note": "匿名夹具：词序列为自造文本，与任何真实学生的录音无关"
+  },
+  "words": [
+    {
+      "w": "First,"
+    },
+    {
+      "w": "we"
+    },
+    {
+      "w": "would"
+    },
+    {
+      "w": "like"
+    },
+    {
+      "w": "to"
+    },
+    {
+      "w": "know"
+    },
+    {
+      "w": "something"
+    },
+    {
+      "w": "about"
+    },
+    {
+      "w": "you."
+    },
+    {
+      "w": "Sport."
+    },
+    {
+      "w": "What"
+    },
+    {
+      "w": "sport"
+    },
+    {
+      "w": "do"
+    },
+    {
+      "w": "you"
+    },
+    {
+      "w": "like?"
+    },
+    {
+      "w": "Why?"
+    },
+    {
+      "w": "In"
+    },
+    {
+      "w": "my"
+    },
+    {
+      "w": "free"
+    },
+    {
+      "w": "time"
+    },
+    {
+      "w": "I"
+    },
+    {
+      "w": "usually"
+    },
+    {
+      "w": "play"
+    },
+    {
+      "w": "basketball"
+    },
+    {
+      "w": "with"
+    },
+    {
+      "w": "my"
+    },
+    {
+      "w": "friends"
+    },
+    {
+      "w": "after"
+    },
+    {
+      "w": "school"
+    },
+    {
+      "w": "because"
+    },
+    {
+      "w": "it"
+    },
+    {
+      "w": "makes"
+    },
+    {
+      "w": "me"
+    },
+    {
+      "w": "feel"
+    },
+    {
+      "w": "happy"
+    },
+    {
+      "w": "and"
+    },
+    {
+      "w": "strong."
+    },
+    {
+      "w": "How"
+    },
+    {
+      "w": "often"
+    },
+    {
+      "w": "do"
+    },
+    {
+      "w": "you"
+    },
+    {
+      "w": "play"
+    },
+    {
+      "w": "it?"
+    },
+    {
+      "w": "I"
+    },
+    {
+      "w": "play"
+    },
+    {
+      "w": "basketball"
+    },
+    {
+      "w": "since"
+    },
+    {
+      "w": "I"
+    },
+    {
+      "w": "am"
+    },
+    {
+      "w": "ten"
+    },
+    {
+      "w": "years"
+    },
+    {
+      "w": "old"
+    },
+    {
+      "w": "so"
+    },
+    {
+      "w": "I"
+    },
+    {
+      "w": "think"
+    },
+    {
+      "w": "I"
+    },
+    {
+      "w": "am"
+    },
+    {
+      "w": "quite"
+    },
+    {
+      "w": "good"
+    },
+    {
+      "w": "at"
+    },
+    {
+      "w": "it"
+    },
+    {
+      "w": "now."
+    },
+    {
+      "w": "Have"
+    },
+    {
+      "w": "you"
+    },
+    {
+      "w": "been"
+    },
+    {
+      "w": "to"
+    },
+    {
+      "w": "the"
+    },
+    {
+      "w": "new"
+    },
+    {
+      "w": "sports"
+    },
+    {
+      "w": "centre?"
+    },
+    {
+      "w": "I"
+    },
+    {
+      "w": "didn't"
+    },
+    {
+      "w": "went"
+    },
+    {
+      "w": "to"
+    },
+    {
+      "w": "the"
+    },
+    {
+      "w": "new"
+    },
+    {
+      "w": "sports"
+    },
+    {
+      "w": "centre"
+    },
+    {
+      "w": "yet"
+    },
+    {
+      "w": "but"
+    },
+    {
+      "w": "my"
+    },
+    {
+      "w": "friends"
+    },
+    {
+      "w": "say"
+    },
+    {
+      "w": "it"
+    },
+    {
+      "w": "is"
+    },
+    {
+      "w": "very"
+    },
+    {
+      "w": "big."
+    },
+    {
+      "w": "Does"
+    },
+    {
+      "w": "your"
+    },
+    {
+      "w": "brother"
+    },
+    {
+      "w": "like"
+    },
+    {
+      "w": "sport"
+    },
+    {
+      "w": "too?"
+    },
+    {
+      "w": "My"
+    },
+    {
+      "w": "brother"
+    },
+    {
+      "w": "like"
+    },
+    {
+      "w": "basketball"
+    },
+    {
+      "w": "too"
+    },
+    {
+      "w": "and"
+    },
+    {
+      "w": "he"
+    },
+    {
+      "w": "watches"
+    },
+    {
+      "w": "games"
+    },
+    {
+      "w": "every"
+    },
+    {
+      "w": "weekend."
+    },
+    {
+      "w": "What"
+    },
+    {
+      "w": "did"
+    },
+    {
+      "w": "you"
+    },
+    {
+      "w": "do"
+    },
+    {
+      "w": "last"
+    },
+    {
+      "w": "summer?"
+    },
+    {
+      "w": "Last"
+    },
+    {
+      "w": "summer"
+    },
+    {
+      "w": "I"
+    },
+    {
+      "w": "go"
+    },
+    {
+      "w": "to"
+    },
+    {
+      "w": "the"
+    },
+    {
+      "w": "beach"
+    },
+    {
+      "w": "with"
+    },
+    {
+      "w": "my"
+    },
+    {
+      "w": "family"
+    },
+    {
+      "w": "and"
+    },
+    {
+      "w": "we"
+    },
+    {
+      "w": "played"
+    },
+    {
+      "w": "volleyball"
+    },
+    {
+      "w": "there."
+    },
+    {
+      "w": "Do"
+    },
+    {
+      "w": "you"
+    },
+    {
+      "w": "prefer"
+    },
+    {
+      "w": "playing"
+    },
+    {
+      "w": "sport"
+    },
+    {
+      "w": "or"
+    },
+    {
+      "w": "watching"
+    },
+    {
+      "w": "it?"
+    },
+    {
+      "w": "Yes"
+    },
+    {
+      "w": "I"
+    },
+    {
+      "w": "do"
+    },
+    {
+      "w": "because"
+    },
+    {
+      "w": "I"
+    },
+    {
+      "w": "usually"
+    },
+    {
+      "w": "play"
+    },
+    {
+      "w": "it"
+    },
+    {
+      "w": "at"
+    },
+    {
+      "w": "the"
+    },
+    {
+      "w": "weekend"
+    },
+    {
+      "w": "and"
+    },
+    {
+      "w": "I"
+    },
+    {
+      "w": "can't"
+    },
+    {
+      "w": "play"
+    },
+    {
+      "w": "basketball"
+    },
+    {
+      "w": "every"
+    },
+    {
+      "w": "day"
+    },
+    {
+      "w": "because"
+    },
+    {
+      "w": "I"
+    },
+    {
+      "w": "have"
+    },
+    {
+      "w": "too"
+    },
+    {
+      "w": "much"
+    },
+    {
+      "w": "homework."
+    },
+    {
+      "w": "What"
+    },
+    {
+      "w": "would"
+    },
+    {
+      "w": "you"
+    },
+    {
+      "w": "like"
+    },
+    {
+      "w": "to"
+    },
+    {
+      "w": "do"
+    },
+    {
+      "w": "in"
+    },
+    {
+      "w": "the"
+    },
+    {
+      "w": "future?"
+    },
+    {
+      "w": "I"
+    },
+    {
+      "w": "want"
+    },
+    {
+      "w": "to"
+    },
+    {
+      "w": "be"
+    },
+    {
+      "w": "a"
+    },
+    {
+      "w": "basketball"
+    },
+    {
+      "w": "player"
+    },
+    {
+      "w": "in"
+    },
+    {
+      "w": "the"
+    },
+    {
+      "w": "future."
+    }
+  ],
+  "text": "First, we would like to know something about you. Sport. What sport do you like? Why?\nIn my free time I usually play basketball with my friends after school because it makes me feel happy and strong.\nHow often do you play it?\nI play basketball since I am ten years old so I think I am quite good at it now.\nHave you been to the new sports centre?\nI didn't went to the new sports centre yet but my friends say it is very big.\nDoes your brother like sport too?\nMy brother like basketball too and he watches games every weekend.\nWhat did you do last summer?\nLast summer I go to the beach with my family and we played volleyball there.\nDo you prefer playing sport or watching it?\nYes I do because I usually play it at the weekend and I can't play basketball every day because I have too much homework.\nWhat would you like to do in the future?\nI want to be a basketball player in the future."
+}

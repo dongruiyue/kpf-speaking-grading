@@ -1,0 +1,292 @@
+{
+  "parent_fail_banned_word.md": {
+    "kind": "家长",
+    "form": "单篇",
+    "level": "FCE",
+    "transcript": false,
+    "draft": false,
+    "exit": 1,
+    "errors": 1,
+    "warnings": 0
+  },
+  "parent_fail_fabricated.md": {
+    "kind": "家长",
+    "form": "单篇",
+    "level": "FCE",
+    "transcript": true,
+    "draft": false,
+    "exit": 1,
+    "errors": 1,
+    "warnings": 0
+  },
+  "parent_fail_ket_discourse.md": {
+    "kind": "家长",
+    "form": "单篇",
+    "level": "KET",
+    "transcript": false,
+    "draft": false,
+    "exit": 1,
+    "errors": 1,
+    "warnings": 0
+  },
+  "parent_fail_ket_discourse_en.md": {
+    "kind": "家长",
+    "form": "单篇",
+    "level": "KET",
+    "transcript": false,
+    "draft": false,
+    "exit": 1,
+    "errors": 1,
+    "warnings": 0
+  },
+  "parent_fail_metrics.md": {
+    "kind": "家长",
+    "form": "单篇",
+    "level": "FCE",
+    "transcript": false,
+    "draft": false,
+    "exit": 1,
+    "errors": 25,
+    "warnings": 3
+  },
+  "parent_fail_missing_section.md": {
+    "kind": "家长",
+    "form": "单篇",
+    "level": "FCE",
+    "transcript": false,
+    "draft": false,
+    "exit": 1,
+    "errors": 1,
+    "warnings": 1
+  },
+  "parent_fail_pause_quantified.md": {
+    "kind": "家长",
+    "form": "单篇",
+    "level": "FCE",
+    "transcript": false,
+    "draft": false,
+    "exit": 1,
+    "errors": 2,
+    "warnings": 0
+  },
+  "parent_fail_solo_interaction.md": {
+    "kind": "家长",
+    "form": "单篇",
+    "level": "FCE",
+    "transcript": false,
+    "draft": false,
+    "exit": 1,
+    "errors": 1,
+    "warnings": 0
+  },
+  "parent_fail_speed_quantified.md": {
+    "kind": "家长",
+    "form": "单篇",
+    "level": "FCE",
+    "transcript": false,
+    "draft": false,
+    "exit": 1,
+    "errors": 1,
+    "warnings": 0
+  },
+  "parent_fail_total_score.md": {
+    "kind": "家长",
+    "form": "单篇",
+    "level": "FCE",
+    "transcript": false,
+    "draft": false,
+    "exit": 1,
+    "errors": 1,
+    "warnings": 0
+  },
+  "parent_pass_fce.md": {
+    "kind": "家长",
+    "form": "单篇",
+    "level": "FCE",
+    "transcript": false,
+    "draft": false,
+    "exit": 0,
+    "errors": 0,
+    "warnings": 0
+  },
+  "parent_pass_fce_en_dims.md": {
+    "kind": "家长",
+    "form": "单篇",
+    "level": "FCE",
+    "transcript": false,
+    "draft": false,
+    "exit": 0,
+    "errors": 0,
+    "warnings": 0
+  },
+  "parent_pass_ket.md": {
+    "kind": "家长",
+    "form": "单篇",
+    "level": "KET",
+    "transcript": false,
+    "draft": false,
+    "exit": 0,
+    "errors": 0,
+    "warnings": 0
+  },
+  "parent_pass_mock_fce.md": {
+    "kind": "家长",
+    "form": "完整模拟",
+    "level": "FCE",
+    "transcript": false,
+    "draft": false,
+    "exit": 0,
+    "errors": 0,
+    "warnings": 0
+  },
+  "parent_pass_total_exempt.md": {
+    "kind": "家长",
+    "form": "单篇",
+    "level": "FCE",
+    "transcript": false,
+    "draft": false,
+    "exit": 0,
+    "errors": 0,
+    "warnings": 0
+  },
+  "parent_quote_fabricated.md": {
+    "kind": "家长",
+    "form": "单篇",
+    "level": "FCE",
+    "transcript": true,
+    "draft": false,
+    "exit": 1,
+    "errors": 1,
+    "warnings": 0
+  },
+  "parent_quote_missing_word.md": {
+    "kind": "家长",
+    "form": "单篇",
+    "level": "FCE",
+    "transcript": true,
+    "draft": false,
+    "exit": 0,
+    "errors": 0,
+    "warnings": 1
+  },
+  "parent_quote_punctuation.md": {
+    "kind": "家长",
+    "form": "单篇",
+    "level": "FCE",
+    "transcript": true,
+    "draft": false,
+    "exit": 0,
+    "errors": 0,
+    "warnings": 0
+  },
+  "parent_quote_swapped_word.md": {
+    "kind": "家长",
+    "form": "单篇",
+    "level": "FCE",
+    "transcript": true,
+    "draft": false,
+    "exit": 1,
+    "errors": 1,
+    "warnings": 0
+  },
+  "parent_quote_verbatim.md": {
+    "kind": "家长",
+    "form": "单篇",
+    "level": "FCE",
+    "transcript": true,
+    "draft": false,
+    "exit": 0,
+    "errors": 0,
+    "warnings": 0
+  },
+  "parent_warn_missing_soft_section.md": {
+    "kind": "家长",
+    "form": "单篇",
+    "level": "FCE",
+    "transcript": false,
+    "draft": false,
+    "exit": 0,
+    "errors": 0,
+    "warnings": 1
+  },
+  "parent_warn_pause_unquantified.md": {
+    "kind": "家长",
+    "form": "单篇",
+    "level": "FCE",
+    "transcript": false,
+    "draft": false,
+    "exit": 0,
+    "errors": 0,
+    "warnings": 1
+  },
+  "parent_warn_speed_unquantified.md": {
+    "kind": "家长",
+    "form": "单篇",
+    "level": "FCE",
+    "transcript": false,
+    "draft": false,
+    "exit": 0,
+    "errors": 0,
+    "warnings": 1
+  },
+  "record_draft.md": {
+    "kind": "作业记录",
+    "form": "单篇",
+    "level": "FCE",
+    "transcript": false,
+    "draft": false,
+    "exit": 0,
+    "errors": 0,
+    "warnings": 23
+  },
+  "record_draft_via_flag.md": {
+    "kind": "作业记录",
+    "form": "单篇",
+    "level": "FCE",
+    "transcript": false,
+    "draft": true,
+    "exit": 0,
+    "errors": 0,
+    "warnings": 23
+  },
+  "record_fail_draft_removed.md": {
+    "kind": "作业记录",
+    "form": "单篇",
+    "level": "FCE",
+    "transcript": false,
+    "draft": false,
+    "exit": 1,
+    "errors": 23,
+    "warnings": 0
+  },
+  "record_pass.md": {
+    "kind": "作业记录",
+    "form": "单篇",
+    "level": "FCE",
+    "transcript": false,
+    "draft": false,
+    "exit": 0,
+    "errors": 0,
+    "warnings": 0
+  },
+  "record_pass_ket.md": {
+    "kind": "作业记录",
+    "form": "单篇",
+    "level": "KET",
+    "transcript": false,
+    "draft": false,
+    "exit": 0,
+    "errors": 0,
+    "warnings": 0
+  },
+  "student_pass.md": {
+    "kind": "学生",
+    "form": "单篇",
+    "level": "FCE",
+    "transcript": false,
+    "draft": false,
+    "exit": 0,
+    "errors": 0,
+    "warnings": 0
+  }
+}

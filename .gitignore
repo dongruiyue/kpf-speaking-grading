@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.pyc
+work/
+calibration/
+*.m4a
+*.mp3
+*.wav
+*.mp4
+*.mov
+*.local.json
+config.json
+.DS_Store
+# 私有黑名单（装着真实姓名/班号）只住 ~/.kpf-speaking/，仓库里只留 .example.txt
+scripts/publishable-denylist.txt

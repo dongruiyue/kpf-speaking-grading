@@ -1,0 +1,412 @@
+# kpf-speaking-grading
+
+**把学生剑桥五级（KET / PET / FCE）口语作业的音频或视频丢进来，本机转写 → 按剑桥口径诊断 → 生成「作业记录 / 家长版反馈 / 学生版」三份成品 → 交付前用校验器把"合规"变成退出码。**
+
+它是一套**给英语老师批口语作业的固定流程**：口径、数字和措辞每次都一样，不因批次而飘。干活的是一组 Python 脚本（可当纯命令行工具用），调度它们的是 `SKILL.md` 这份流程说明（agent skill 用法见文末）。
+
+- 输入：`.m4a`、`.mp3`、`.wav`、`.mp4`、`.mov`（视频自动取音轨，**不需要 ffmpeg、不需要先转码**）
+- 输出：三份 `.md` 成品 + 转写 JSON + 发音报告，落在 `work/<日期>-<学生>/`
+- **机器做的**：转写、切问答、算硬指标、给发音分（调语音评测引擎）、生成成品骨架、交付前合规校验
+- **人做的**：判断作业形态（自问自答 / 独白 / 对话）、要图片类题型的图、改措辞、决定互动交际
+
+## 六步流程
+
+```mermaid
+flowchart LR
+    S0["第 0 步 · 一次性安装<br/>bash scripts/setup.sh<br/>建 .venv + 下模型"] --> S1
+    S1["① 转写<br/>scripts/kpf_asr.py<br/>本地 whisper / Groq / 讯飞听见"] --> S2
+    S2["② 切问答 + 算硬指标<br/>scripts/kpf_analyze.py<br/>→ 批改底稿"] --> S3
+    S3["③ 发音评分<br/>scripts/kpf_pronounce.py<br/>xfyun → azure → local → manual"] --> S4
+    S4["④ 生三份成品<br/>scripts/kpf_report.py<br/>作业记录 / 家长版 / 学生版"] --> S5
+    S5["⑤ 输出归档<br/>work/日期-学生/<br/>落库可选"] --> S6
+    S6["⑥ 交付前校验<br/>scripts/kpf_validate.py<br/>有 error 就不许交付"]
+```
+
+第 ⑥ 步不是建议、是闸门：`kpf_validate.py` **有 error 就退出码 1**，逐条打印行号与原因。校验不通过就回去改报告，不是改校验器。
+
+## 它能解决什么
+
+一个班 5 个学生各交一页口语作业（学生念题 + 自己回答，约 140 秒的音频或视频），老师要出：
+
+- 5 份**内部作业记录**（分项评分、硬指标、逐项详评、抽听点位表）
+- 5 份**家长版反馈**（纯文字，能直接粘到微信）
+- 5 份**学生版反馈**（逐句修改表 + 升级表达）
+
+这套流程把可机检的部分全部做完：音频 → 转写 → 切出每题问答 → 算出语速 / 停顿 / 词数 → 调语音评测引擎给发音分 → 生成三份成品骨架 → 逐份校验。老师只做两件机器做不了的事：**按形态判断哪几项有证据**、**把骨架改成自己的话**。
+
+耗时参考（8GB M2、CPU int8，实测）：一页 5 题约 140 秒的录音，**转写约 47 秒**（`large-v3-turbo`，约 3 倍实时），转写 + 分析全流程约 1 分钟。数据出处：`references/06-verification.md` 第五节。
+
+## 设计约束（为什么它长这样）
+
+这几条是硬约束，不是偏好；`scripts/check_consistency.py` 会盯着它们不许漂移：
+
+1. **AI 只负责两项**：「语法与词汇」「话语组织」。
+2. **发音不许 AI 编**：分数只来自语音评测引擎（讯飞 ISE / Azure）；引擎不可用时标 `待教师填`。AI 顶多产出带时间戳的"抽听点位表"。
+3. **独自录音 / 自问自答不评「互动交际」**：没有对手方就没有证据，只能标 `N/A` 或「待补」。给一个分就是编。
+4. **A2 Key 只有 3 个维度**（语法与词汇、发音、互动交际），**没有话语组织**；B1 Preliminary / B2 First 是 4 项。
+5. **单篇作业只给分项分**（每个维度 `X / 5`，允许半分），**不给加权总分、不给得分率、不判过没过**；只有覆盖全部 Part、四项齐备的**完整模拟**才给总分。官方分制：A2 Key 各项 ×2 + Global Achievement ×3 = 45；B1 ×1 + GA ×2 = 30；B2 ×2 + GA ×4 = 60。
+6. **家长版有硬红线**：放官方口径的分项分，但**不放引擎原始分**（如 `93.6/100`）、**不放带量化的技术指标**（语速 X 词/分、停顿 X 次、词数）；不出现 `AI / 引擎 / 评测 / 讯飞 / 识别 / 转写 / 数据` 这些字眼；纯文字不用表格。理由很直白：家长不该看出有工具链参与，他看到的必须是"老师自己听出来的"。
+7. **防编造**：家长版引用的学生原句必须能在转写稿里找到，相似度 **< 0.85 直接判 error**。
+
+## 能力边界（先说做不到的）
+
+| 你要的 | 为什么不行 | 怎么办 |
+|---|---|---|
+| 批**写作 / 笔试**作业 | 这套维度只对口语有效 | 另找作文批改流程 |
+| 评**互动交际**，但录音里只有学生一个人（自问自答 / 独白） | 没有对手方就没有证据，给分就是编 | 标 `N/A` 或「待补」；要真评就另排一次两两对话 |
+| 只有**文字稿**、没有音频 | 发音维度无从下手，连疑点定位都做不了 | 只评语法与词汇、话语组织；发音标「待补」并说明原因 |
+| 要**预测官方考试成绩**（总分、能不能过、考几分证书） | 口语只占考试一部分，官方明确说原始分不能预测真实考试分数 | 明说无法预测；只在覆盖全部 Part 的完整模拟里给**参考判定** |
+| 要**判断是不是本人说的**（排除作弊） | 不做声纹或身份判断 | 说明做不到，交老师处理 |
+| 要**替考官定档、发证书式结论** | 教学口径的 0–5 不是官方考官分 | 标清「AI 预估 / 教学映射」，说明不等于官方分 |
+
+完整清单在 `SKILL.md` 的「何时使用」；"哪些维度有证据"的矩阵在 `references/01-task-map.md` 第三节。
+
+## 安装（一次性）
+
+```bash
+bash scripts/setup.sh
+```
+
+- 需要 **`uv`**（`brew install uv`）。脚本会建 `.venv`、装依赖、**预下载 faster-whisper 模型 `large-v3-turbo`（首次约 1.6GB）**。
+- 默认走国内镜像 `HF_ENDPOINT=https://hf-mirror.com`，并自动绕过系统代理（macOS 系统代理指向未启动的程序时会阻断下载）。有科学上网时用 `KPF_HF_ENDPOINT= bash scripts/setup.sh` 直连。
+- **模型只认 `large-v3-turbo` 或更大**：实测 `tiny` 对学习者语音的识别质量不足以支撑题目对齐（对齐度 0%）。
+
+### 可选：API key（不配也能跑）
+
+```bash
+mkdir -p ~/.kpf-speaking
+cp config.example.json ~/.kpf-speaking/config.json   # 然后编辑填空
+```
+
+| 块 | 用途 | 说明 |
+|---|---|---|
+| `xfyun` | **发音分首选**（讯飞 ISE 语音评测） | 免信用卡、免代理、有免费额度。建应用后**先在控制台「开通」中英文语音评测服务**（不开通接口直接报错），再填 `appid / api_key / api_secret`。评的是**念题部分**，所以跑的时候**必须给 `--questions questions/<页号>.txt`** |
+| `azure` | 备用发音评测 | F0 免费层每月 5 小时，`unscripted` 模式可评**答题**部分。**代码按官方 REST 契约实现，尚未用真实 key 验证过** |
+| `groq_api_key` | 云端转写加速 | 秒级出稿，但**学生音频会上传** |
+| （讯飞听见 `xftj`） | 转写第二意见 | 走 `kpf_asr.py --engine xftj`，消耗额度，需 `--yes-pay` 显式确认 |
+
+**所有 key 都可以留空。** 缺了会按 provider 链自动降级（讯飞 → Azure → 本机 whisper 疑点 → 教师人工），并在 stderr 打印每一步降级原因——**不会静默给 0 分**。代价是家长版里的发音分需要老师手填。
+
+`config.example.json` 里还有一个可选的 `vault` 块：只在你想把成品顺手落进自己的笔记库时才需要（库根目录 + 产物→目录映射，见 `references/05-output-and-vault.md` 第二节）。不填也能用，三份成品照旧落在 `work/<日期>-<学生>/`。
+
+## 离线可跑的演示（不需要音频、不需要任何 key）
+
+下面三条命令在本仓库直接跑，输出是**实跑结果**（下方 `make check` 输出里的绝对路径已替换为 `<repo>`，其余逐字照抄）。
+
+### 1. `make check`——发布前必跑的四道闸门
+
+```bash
+$ make check
+python3 -m py_compile scripts/check_consistency.py scripts/check_publishable.py scripts/kpf_analyze.py scripts/kpf_anonymize.py scripts/kpf_asr.py scripts/kpf_calibrate.py scripts/kpf_ise_stream.py scripts/kpf_pronounce.py scripts/kpf_report.py scripts/kpf_validate.py scripts/kpf_xfyun.py tests/run_fixtures.py
+python3 scripts/check_consistency.py
+KPF 规则一致性校验 · <repo>
+
+[1] to_band() 阈值
+  ✅ to_band() 阈值一致：代码 BANDS=[(90, 5), (80, 4), (70, 3), (60, 2), (0, 1)] ↔ 02-rubric 5.3=[('ge', 90), ('ge', 80), ('ge', 70), ('ge', 60), ('lt', 60)]
+
+[2] 各级别口语满分
+  ✅ 02-rubric 官方分制表一致：A2 Key 45 / B1 Preliminary 30 / B2 First 60
+  ✅ 各级别满分（45 / 30 / 60）在代码与文档里没有矛盾配对
+
+[3] A2 Key 维度数
+  ✅ 01-task-map.md 维度矩阵：A2 列明确没有「话语组织」
+  ✅ 01-task-map.md 逐级维度数正确：A2 3 项（语法与词汇、发音、互动交际）；B1 4 项（语法与词汇、话语组织、发音、互动交际）；B2 4 项（语法与词汇、话语组织、发音、互动交际）
+  ✅ 02-rubric.md 的 A2 维度行正确：语法与词汇、发音、互动交际（3 项，无话语组织）
+  ✅ kpf_report.py 三个报告模板都存在，核心维度行齐备
+
+[4] 引用完整性
+  ✅ 引用完整性：SKILL.md + references/*.md 里 123 处 scripts/references/questions 路径全部存在
+
+[5] 自我覆盖残留
+  ✅ 无自我覆盖残留：没有「取代此前 / 效力高于 / 优先于本文件 / 已作废 / 本节的效力」
+
+[6] references 节号连续
+  ✅ references 一级节号全部连续（## 一、## 二、…）
+
+[7] 防编造阈值（QUOTE_ERROR / QUOTE_PASS）
+  ✅ 防编造阈值一致：QUOTE_ERROR=0.85 / QUOTE_PASS=0.92（代码 ↔ 06-verification §8.4 ↔ checklist/04-feedback）
+
+[8] 家长版技术指标分级（停顿 / 语速带量化才算指标）
+  ✅ 家长版技术指标分级一致：无条件 7 个；带数字才算 ['个词']；带量化才算 ['停顿', '语速']；数据/样本/测量仍在禁用词里
+
+[9] 维度中英对照与 A2 例外说明
+  ✅ 维度中英对照一致：4 组（A2 Key 3 项、无话语组织，kpf_report.py 三套模板都有 A2 例外说明）
+
+一致性校验通过：13 项断言全部成立
+python3 tests/run_fixtures.py
+夹具回归 · 29 个用例 · 校验器 scripts/kpf_validate.py
+夹具目录 <repo>/tests/fixtures
+期望表   <repo>/tests/expected.json
+
+用例                                 kind/form/level    退出码  error  warning  结果
+------------------------------------------------------------------------------------
+parent_fail_banned_word.md           家长/单篇/FCE           1      1        0  PASS
+parent_fail_fabricated.md            家长/单篇/FCE           1      1        0  PASS
+parent_fail_ket_discourse.md         家长/单篇/KET           1      1        0  PASS
+parent_fail_ket_discourse_en.md      家长/单篇/KET           1      1        0  PASS
+parent_fail_metrics.md               家长/单篇/FCE           1     25        3  PASS
+parent_fail_missing_section.md       家长/单篇/FCE           1      1        1  PASS
+parent_fail_pause_quantified.md      家长/单篇/FCE           1      2        0  PASS
+parent_fail_solo_interaction.md      家长/单篇/FCE           1      1        0  PASS
+parent_fail_speed_quantified.md      家长/单篇/FCE           1      1        0  PASS
+parent_fail_total_score.md           家长/单篇/FCE           1      1        0  PASS
+parent_pass_fce.md                   家长/单篇/FCE           0      0        0  PASS
+parent_pass_fce_en_dims.md           家长/单篇/FCE           0      0        0  PASS
+parent_pass_ket.md                   家长/单篇/KET           0      0        0  PASS
+parent_pass_mock_fce.md              家长/完整模拟/FCE       0      0        0  PASS
+parent_pass_total_exempt.md          家长/单篇/FCE           0      0        0  PASS
+parent_quote_fabricated.md           家长/单篇/FCE           1      1        0  PASS
+parent_quote_missing_word.md         家长/单篇/FCE           0      0        1  PASS
+parent_quote_punctuation.md          家长/单篇/FCE           0      0        0  PASS
+parent_quote_swapped_word.md         家长/单篇/FCE           1      1        0  PASS
+parent_quote_verbatim.md             家长/单篇/FCE           0      0        0  PASS
+parent_warn_missing_soft_section.md  家长/单篇/FCE           0      0        1  PASS
+parent_warn_pause_unquantified.md    家长/单篇/FCE           0      0        1  PASS
+parent_warn_speed_unquantified.md    家长/单篇/FCE           0      0        1  PASS
+record_draft.md                      作业记录/单篇/FCE       0      0       23  PASS
+record_draft_via_flag.md             作业记录/单篇/FCE       0      0       23  PASS
+record_fail_draft_removed.md         作业记录/单篇/FCE       1     23        0  PASS
+record_pass.md                       作业记录/单篇/FCE       0      0        0  PASS
+record_pass_ket.md                   作业记录/单篇/KET           0      0        0  PASS
+student_pass.md                      学生/单篇/FCE           0      0        0  PASS
+------------------------------------------------------------------------------------
+
+全绿：29/29 个用例与期望表一致（退出码 + error/warning 计数）
+python3 scripts/check_publishable.py
+发布闸门 · <repo>
+黑名单 publishable-denylist.txt（10 条）· 命中就逐条列在下面
+
+提示：跳过：这里还不是 git 仓库（git rev-parse 未通过），`.venv/` 跟踪检查没跑
+
+可发布：0 处命中（扫了 72 个文本文件）
+```
+
+**退出码 0。** 全程离线、不需要任何 API key、秒级跑完——所以 CI 里也只跑这一条（`.github/workflows/ci.yml`），不用装 faster-whisper 那类重依赖。
+
+> 那句「这里还不是 git 仓库」是发布闸门的第 5 项检查（`.venv/` 有没有被 git 跟踪）：当前还没 `git init`，它跳过并明说。`git init` 之后这一项会真的跑，输出换成 `.venv/` 没有被 git 跟踪（已确认）。
+
+### 2. 合规的家长版 → `PASS`
+
+```bash
+$ python3 scripts/kpf_validate.py tests/fixtures/parent_pass_fce.md --kind 家长 --form 单篇 --level FCE
+PASS 家长/单篇/B2 First · tests/fixtures/parent_pass_fce.md · 0 error / 0 warning
+$ echo $?
+0
+```
+
+### 3. 踩了红线的家长版 → `FAIL`，逐条打行号
+
+```bash
+$ python3 scripts/kpf_validate.py tests/fixtures/parent_fail_metrics.md --kind 家长 --form 单篇 --level FCE
+全文 [warning] 未写「六、本次未涉及的部分」段（家长版固定六段结构）
+全文 [warning] 未找到家长版的「存在的问题」段（固定六段结构）
+全文 [warning] 未找到家长版的「需要改进的方向」段（固定六段结构）
+校验未通过：tests/fixtures/parent_fail_metrics.md（家长/单篇/B2 First）
+  L7 [error] 残留占位符「〔具体表扬，引原话或数字〕」：交付前必须填完
+  L7 [error] 残留占位符「〔结构上的具体表扬〕」：交付前必须填完
+  L7 [error] 残留占位符「〔内容/配合度〕」：交付前必须填完
+  L11 [error] 残留占位符「〔问题的一句话说明，必须带证据〕」：交付前必须填完
+  L11 [error] 残留占位符「〔可执行动作〕」：交付前必须填完
+  L13 [error] 残留占位符「〔同上〕」：交付前必须填完
+  L15 [error] 残留占位符「〔如需第三条，务必是前两条之外、且同样有证据的〕」：交付前必须填完
+  L17 [error] 残留占位符「〔每天几分钟做什么，说明不用发给老师〕」：交付前必须填完
+  L19 [error] 残留占位符「〔一句话理由：写稿会让"按词往外蹦"的习惯更重〕」：交付前必须填完
+  L21 [error] 残留占位符「〔可验证的短期目标〕」：交付前必须填完
+  L5 [error] 家长版出现技术指标「词/分」：家长版只放官方口径的 X / 5 分项分
+  L5 [error] 家长版出现技术指标「词/分钟」：家长版只放官方口径的 X / 5 分项分
+  L5 [error] 家长版出现技术指标「平均每题」：家长版只放官方口径的 X / 5 分项分
+  L5 [error] 家长版出现技术指标「个词（词数统计）」：家长版只放官方口径的 X / 5 分项分
+  L5 [error] 家长版出现带量化的技术指标「停顿」：家长版只放官方口径的 X / 5 分项分（把数字/次数删掉）
+  L5 [error] 家长版出现带量化的技术指标「语速」：家长版只放官方口径的 X / 5 分项分（把数字/次数删掉）
+  L23 [error] 家长版出现技术指标「词/分」：家长版只放官方口径的 X / 5 分项分
+  L23 [error] 家长版出现技术指标「词/分钟」：家长版只放官方口径的 X / 5 分项分
+  L23 [error] 家长版出现带量化的技术指标「语速」：家长版只放官方口径的 X / 5 分项分（把数字/次数删掉）
+  L23 [error] 家长版出现引擎原始分「93.6/100」：只放官方口径的分项分 X / 5
+全文 [error] 缺少「一、本次评分」段：家长版六段结构的第一段必须有（references/04-feedback.md 2.2）
+全文 [error] 缺少免责句，必须一字不改：「这是单次录音的表现，不作为考试总分预估」
+全文 [error] 缺少维度行「语法与词汇」（B2 First 必须有这几项：语法与词汇、话语组织、发音、互动交际）
+全文 [error] 缺少维度行「话语组织」（B2 First 必须有这几项：语法与词汇、话语组织、发音、互动交际）
+全文 [error] 缺少维度行「互动交际」（B2 First 必须有这几项：语法与词汇、话语组织、发音、互动交际）
+FAIL 家长/单篇/B2 First · tests/fixtures/parent_fail_metrics.md · 25 error / 3 warning
+$ echo $?
+1
+```
+
+（`tests/fixtures/parent_pass_fce.md` 与 `parent_fail_metrics.md` 都是**匿名合成夹具**，不是真实学生数据。）
+
+再试一个更贴近"防编造"的（报告里引一句转写稿里没有的学生原句）：
+
+```bash
+$ python3 scripts/kpf_validate.py tests/fixtures/parent_fail_fabricated.md --kind 家长 --form 单篇 --level FCE \
+    --transcript tests/fixtures/_transcript.json
+校验未通过：tests/fixtures/parent_fail_fabricated.md（家长/单篇/B2 First）
+  L26 [error] 引用的学生原句在转写稿中找不到（原文引用，最相近片段相似度 0.50 < 阈值 0.85）：「I have visited three different cities with my cousin」——疑似编造，必须回音频/转写核对后再交付
+FAIL 家长/单篇/B2 First · tests/fixtures/parent_fail_fabricated.md · 1 error / 0 warning
+$ echo $?
+1
+```
+
+## 完整工作流（第 1–6 步）
+
+工作目录约定 `work/<日期>-<学生>/`：中间产物（底稿、发音报告、转写 JSON）与三份成品放一起，一次批改一个目录。
+
+| 步骤 | 命令 | 需要你的音频吗 | 需要 API key 吗 |
+|---|---|---|---|
+| ① 转写 | `kpf_asr.py` | ✅ 需要 | ❌ `--engine local` 不需要 |
+| ② 切问答 + 指标 | `kpf_analyze.py` | ❌ 纯离线 | ❌ |
+| ③ 发音评分 | `kpf_pronounce.py` | ✅ 需要（切音频给评测接口） | ⚠️ 讯飞需要；local/manual 不需要 |
+| ④ 生三份成品 | `kpf_report.py` | ❌ 纯离线 | ❌ |
+| ⑤ 归档（落库可选） | 无脚本，按约定放目录 | ❌ | ❌ |
+| ⑥ 交付前校验 | `kpf_validate.py` | ❌ 纯离线 | ❌ |
+
+```bash
+# ① 转写（本地引擎：免费无限，音频不出本机）
+.venv/bin/python scripts/kpf_asr.py transcribe <音频或文件夹> \
+    --student <学生> --class <班级> --level FCE --engine local --out work/<日期>-<学生>/
+# → work/<日期>-<学生>/<文件名>--local.json
+
+# ①′ 可选：交叉验证发音疑点（同一个文件跑第二遍 Groq，然后比对）
+.venv/bin/python scripts/kpf_asr.py transcribe <音频> --engine groq --out work/<日期>-<学生>/
+.venv/bin/python scripts/kpf_asr.py crosscheck \
+    work/<日期>-<学生>/<文件名>--local.json work/<日期>-<学生>/<文件名>--groq.json \
+    --out work/<日期>-<学生>/交叉验证.md
+# 注意：crosscheck 只接受**恰好 2 个** json 文件，多给会 argparse 报错
+
+# ② 切问答 + 算硬指标 + 出批改底稿
+.venv/bin/python scripts/kpf_analyze.py work/<日期>-<学生>/<文件名>--local.json \
+    --questions questions/FCE-P1-P102-holidays.txt \
+    --student <学生> --class <班级> --level FCE \
+    --out work/<日期>-<学生>/<学生>-底稿.md
+
+# ③ 发音评分（auto = 讯飞 → Azure → 本地疑点 → 教师人工，任一成功即用）
+.venv/bin/python scripts/kpf_pronounce.py work/<日期>-<学生>/<文件名>--local.json \
+    --provider auto --questions questions/FCE-P1-P102-holidays.txt \
+    --out work/<日期>-<学生>/<学生>-发音.md
+
+# ④ 生三份成品（三份都要跑一遍；--form 决定互动交际的措辞）
+.venv/bin/python scripts/kpf_report.py <底稿.md> --kind 作业记录 --form 自问自答 \
+    --homework "<作业名>" --date <YYYY-MM-DD> --out work/<日期>-<学生>/<学生>-作业记录.md
+.venv/bin/python scripts/kpf_report.py <底稿.md> --kind 家长 --form 自问自答 \
+    --homework "<作业名>" --date <YYYY-MM-DD> --out work/<日期>-<学生>/<学生>-家长.md
+.venv/bin/python scripts/kpf_report.py <底稿.md> --kind 学生 --form 自问自答 \
+    --homework "<作业名>" --date <YYYY-MM-DD> --out work/<日期>-<学生>/<学生>-学生.md
+
+# ⑤ 归档：三份成品 + 底稿 + 发音报告 + 转写 JSON 都留在同一个作业目录；
+#    （可选）把成品归进自己的笔记库，见 references/05-output-and-vault.md 第二节
+
+# ⑥ 交付前必须跑，三份都跑（有 error 就重做报告，不是改校验器）
+python3 scripts/kpf_validate.py work/<日期>-<学生>/<学生>-家长.md --kind 家长 --form 单篇 --level FCE
+python3 scripts/kpf_validate.py work/<日期>-<学生>/<学生>-学生.md --kind 学生 --form 单篇 --level FCE
+python3 scripts/kpf_validate.py work/<日期>-<学生>/<学生>-作业记录.md --kind 作业记录 --form 单篇 --level FCE
+
+# ⑥′ 防编造：把转写稿一起给进去，报告里引用的学生原句必须找得到
+python3 scripts/kpf_validate.py work/<日期>-<学生>/<学生>-家长.md --kind 家长 --form 单篇 --level FCE \
+    --transcript work/<日期>-<学生>/<文件名>--local.json
+```
+
+几个 `--form` 与 `--draft` 的用法要点：
+
+- `--form` 取 `自问自答` / `独白` / `对话`。不给就留 `〔待判断〕` 占位符等你填；**含对手方的对话录音绝不能被写成"自问自答"**。
+- 作业记录可以先落**草稿形态**（frontmatter `状态: 草稿`，或校验时加 `--draft`）：占位符残留从 error 降为 warning，其余检查不变。**填完占位符、转正式、重跑为 0 error 才算可交付**；家长版 / 学生版没有草稿形态（传 `--draft` 是用法错误，退出码 2）。
+- 校验器**只用 Python 标准库**：用系统 `python3` 跑即可，不必进 `.venv`、不联网、不用凭证。转写 / 发音那两步才需要 `.venv`。
+
+## 「准不准」：已验证什么、还没验证什么
+
+**这一节请当必读。** 唯一权威状态表是 `references/06-verification.md`——本仓库刻意把"没验证的"和"验证过的"分开列，README 只做摘要，冲突时以那份文件为准。
+
+### 已经真实录音跑通（学生甲，FCE，P102，`.mov`，140.4 秒）
+
+| 能力 | 结论 |
+|---|---|
+| 本地转写直接读视频容器 | ✅ 自动提音轨，**不需要 ffmpeg、不需要先转码** |
+| `large-v3-turbo` 正式效果 | ✅ 140.4 秒音频 **47 秒转完**（约 3 倍实时），216 词全部带词级置信度 |
+| 三引擎统一 schema | ✅ 讯飞 / Groq / 本地输出同一结构，可互换、可交叉比对 |
+| 题目对齐（含念错题） | ✅ 验收标准是**逐题答词数相对人工基线的偏差 ≤5%**（不是"能切出 5 题"就算过）；`Which` 念成 `We each`、漏读 `in` 都被抓到 |
+| 指标口径 | ✅ 讯飞：145 词 / 每题 29.0（手工基线 143 / 28.6，偏差 1.4%） |
+| 双引擎交叉验证 | ✅ 自动标出 `00:18.2` 为高置信疑点，与人工听音判断的位置一致 |
+| **讯飞 ISE 语音评测** | ✅ 5 句念题实测通过（含 overall / 发音 / 韵律 / **句末语调** / 语速与逐词逐音素得分），耗时 8.4 秒；顺带抓到"特殊疑问句念成升调"这种纯人工听音容易漏的问题 |
+| **两个讯飞引擎的差异** | ✅ 同一段录音：suntone 总分 79.6（映射 3 档）vs 流式版 61.3（映射 2 档）——**差 18.3 分、差两档**，所以只作主评分 + 质检分工，绝不混用 |
+| 合规校验器与一致性断言 | ✅ 29 个夹具 + 13 项断言，`make check` 全绿（就是上面第 1 条演示） |
+
+### 尚未验证（`references/06-verification.md` 第四节原样照搬）
+
+- ⬜ **Azure 发音评估**：代码按官方 REST 契约实现，但**未用真实 key 验证过**。配好 key 后应先拿一条录音做冒烟测试，确认返回字段解析无误。
+- ⬜ **Groq 引擎**：代码已实现（`verbose_json` + `timestamp_granularities[]=word`），**未用真实 key 跑过**。注意免费层单文件 25MB 上限。
+- ⬜ **讯飞听见（`xftj`）的脚本化路径**：复用了既有上传/支付/下载流程，但**未在脚本里真正跑过**（会消耗额度）。
+- ⬜ **真人校准**：**本 skill 打出的分，从来没有和真人老师给的分做过系统比对。** 目前唯一的外部参照只是个别学生的教师口头判断。这是 **1.0.0 的门槛**，做法见 `docs/calibration.md`。
+- ⬜ **模糊对齐的容差**：逐题词数有 **±2–4 词**的边界误差；验收标准定在"逐题答词数相对人工基线偏差 ≤5%"，整体量级可靠，**单题词数只当近似值**。
+
+还有一条使用上的坑，写在这里免得踩：**同一个学生的跨批次对比（尤其"改正版 vs 原版"的进步曲线）必须用同一个引擎**——不同引擎的答题总词数差 8%、停顿数差 67%（本地 whisper 的停顿系统性偏少），绝对数字不可跨引擎比。
+
+## 持续性怎么保证
+
+**每次改规则都不许靠"我觉得"**，靠三个东西：
+
+```bash
+python3 scripts/check_consistency.py     # 规则本身有没有漂移（13 项断言）
+python3 tests/run_fixtures.py            # 29 个匿名夹具的退出码与 error/warning 计数
+python3 scripts/check_publishable.py     # 发布闸门：真实姓名 / 个人路径 / 凭证 / 音视频名
+```
+
+三条合起来就是 `make check`。另外两个工具负责"越用越准"：
+
+| 工具 | 干什么 | 判据 |
+|---|---|---|
+| `scripts/kpf_calibrate.py` | 把 **AI 分项分**与**真人老师给分**比对：逐维度完全一致率、**±1 档一致率**、系统性偏差、混淆矩阵、分歧清单（老师理由 + AI 当时引的证据） | **±1 档一致率低于 `--min-agreement`（默认 0.8）→ 退出码 1**；进入统计的 case 少于 3 个时只当"冒烟" |
+| `scripts/kpf_anonymize.py` | 把真实 case 变成**可公开的夹具**：替换姓名 / 班号 / 绝对路径 / 音视频文件名，**保留英文原句与分数** | 写完自动复扫产物，有残留 → 退出码 1 |
+
+这两件事的完整闭环（语料怎么攒、报告怎么读、怎么把一批真实样本变成规则改动与回归夹具）写在 **`docs/calibration.md`**。
+
+## 隐私与合规
+
+**默认路径上，学生的音频不出本机。**
+
+- 默认转写引擎是**本机跑**的 faster-whisper（`--engine local`）：不联网、不上传、免费无限。这是刻意选的默认值。
+- 一旦改用 **Groq**（`--engine groq`）或**讯飞听见**（`--engine xftj`），**学生音频会上传到第三方服务**；发音评测（讯飞 ISE / Azure）同样需要把切好的音频片上传。要自己权衡——**涉及未成年人时，尤其要注意先取得家长同意**。
+- 仓库里**所有测试夹具都是合成的**，不含任何真实学生数据；姓名一律是「学生甲 / 学生乙」这类代号，班号一律是 `FCE-A` 这类形式。
+- **建议：真实学生的音频、转写、姓名永远不要提交到任何 git 仓库。** 仓库侧的兜底有两道——`.gitignore` 已忽略 `work/`、音视频后缀与 `*.local.json`；`make check` 里的发布闸门会扫真实姓名（黑名单）、个人绝对路径、凭证形态与音视频文件名，命中就 exit 1。`git add` 之前跑一次 `make check`。
+- 凭证只放 `~/.kpf-speaking/config.json`（仓库外，已 `.gitignore`），示例值一律留空。
+
+## 版权
+
+`questions/` 下的 10 条题干出自 Cambridge《FCE Trainer》Test 1 / Test 2 的 Speaking Part 1（P56 音乐、P102 假期），**版权归 Cambridge University Press & Assessment**，本仓库仅作**格式示例**、不主张任何权利。详情与自建题库格式见 `questions/README.md`。
+
+**要公开发布又不想带真题，一条命令摘除：**
+
+```bash
+bash scripts/strip-copyright-content.sh --dry-run   # 先看会改什么
+bash scripts/strip-copyright-content.sh            # 删掉 questions/*.txt，并生成 questions/example.txt 占位
+```
+
+它会删掉 `questions/*.txt`（保留 `questions/README.md`）、把文档里指向这些文件的路径统一改成 `questions/example.txt`、生成占位题库，并在结束时列出还需手工检查的地方（示例命令、机械替换留下的重复等）。**幂等，跑两次不会出错。**
+
+## 许可
+
+- **代码**（`scripts/**`、`tests/**`）：MIT，见 [`LICENSE`](LICENSE)。
+- **文档**（`SKILL.md`、`README.md`、`references/**`、`docs/**` 等）：CC BY 4.0，见 [`LICENSE-docs.md`](LICENSE-docs.md)（署名即可、可自由改编；官方条款：<https://creativecommons.org/licenses/by/4.0/>）。
+- 第三方版权材料（`questions/` 下的真题题干）不在上述许可范围内。
+
+## 贡献
+
+改规则、改阈值之前请先读 [`CONTRIBUTING.md`](CONTRIBUTING.md)，那里有两条硬纪律：
+
+1. **不许"追加新章节 + 声明效力更高"式打补丁**——必须物理删除旧段落、节号重排连续（这个项目曾经因此攒出 14 处自相矛盾）。
+2. **改了任何阈值/数值，必须同时改 `references/06-verification.md` §8.4 的锚点表**——`check_consistency.py` 从那张表反解数值去比对代码，改一处就是漂移。
+
+「越用越准」的路径见 [`docs/calibration.md`](docs/calibration.md)。
+
+## 作为 agent skill 使用
+
+`SKILL.md` 是给 Claude Code / Codex 这类 agent 读的流程入口（frontmatter 里的 `name` / `description` 决定它什么时候被触发）。它只做流程导航，细则全在 `references/`：
+
+| 文件 | 什么时候读 |
+|---|---|
+| `references/01-task-map.md` | 每次批改开头：确认题型与哪几个维度有证据 |
+| `references/02-rubric.md` | 打分前：各维度锚点、官方分制、单篇/完整模拟口径（**跨文件冲突的最终裁定**） |
+| `references/03-scoring-rules.md` | 判断证据等级、处理转写失真、决定哪些必须人工 |
+| `references/04-feedback.md` | 写家长版 / 学生版之前（家长版红线以它第二节为唯一口径） |
+| `references/checklist.md` | 报告写完、交付前：全 skill 唯一一份自检清单 |
+| `references/05-output-and-vault.md` | 输出归档与（可选）落库 |
+| `references/06-verification.md` | 脚本改动后、或怀疑某环节不准时：**实测结论与已知坑** |
+
+也可以完全离开 agent 用：`scripts/` 下的脚本都是普通命令行工具，`references/` 就是一份可打印的教学 SOP。

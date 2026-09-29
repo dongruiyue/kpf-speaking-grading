@@ -1,0 +1,30 @@
+{
+  "_说明": "复制为 ~/.kpf-speaking/config.json 后填写。所有 key 都可留空，脚本会按 provider 链自动降级（讯飞 → Azure → 本机 whisper 疑点 → 教师人工），流程不会卡住。",
+
+  "groq_api_key": "",
+  "_groq": "可选。免费申请 https://console.groq.com/keys —— 走云端转写（秒级），但学生音频会上传。需能访问 api.groq.com（通常要开代理，并设 KPF_USE_PROXY=1）。",
+
+  "xfyun": {
+    "appid": "",
+    "api_key": "",
+    "api_secret": ""
+  },
+  "_xfyun": "可选但推荐（发音分的首选来源）。讯飞开放平台 https://console.xfyun.cn —— 建应用后，先在控制台【开通】中英文语音评测服务（未开通时接口直接报错），再抄下 APPID / APIKey / APISecret 填到这里。评的是作业里的念题部分，所以跑脚本时还要给 --questions questions/<页号>.txt（一行一题）。脚本用的端点是 wss://cn-east-1.ws-api.xf-yun.com/v1/private/s8e098720，如需覆盖可加 host / path 两个字段。",
+
+  "azure": {
+    "key": "",
+    "region": ""
+  },
+  "_azure": "可选备用。语音服务发音评估，F0 免费层每月 5 小时，unscripted 模式可评答题部分。region 例如 eastasia / southeastasia。代码按官方 REST 契约实现，但**尚未用真实 key 验证过**（见 references/06-verification.md 第四节）。",
+
+  "_vault": "可选，只有要把成品落进自己的笔记库时才需要（见 references/05-output-and-vault.md 第二节）。root 填库根目录，mapping 填「产物 → 目标目录」的相对路径；不填也能用，三份成品会落在 work/<日期>-<学生>/。落库永远是最后一步的可选项，不是必经流程。",
+  "vault": {
+    "root": "",
+    "mapping": {
+      "作业记录": "",
+      "个人错误卡": "",
+      "班级共性卡": "",
+      "转写归档": ""
+    }
+  }
+}

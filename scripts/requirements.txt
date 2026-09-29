@@ -1,0 +1,5 @@
+faster-whisper>=1.0.0
+requests>=2.31.0
+# 讯飞语音评测（kpf_xfyun.py / kpf_ise_stream.py）运行期用 websockets 的同步客户端；
+# faster-whisper / requests 都不带它，必须显式声明，否则新机器装完必 ImportError。
+websockets>=12
