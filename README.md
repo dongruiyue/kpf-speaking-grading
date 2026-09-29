@@ -1,5 +1,7 @@
 # kpf-speaking-grading
 
+[![check](https://github.com/dongruiyue/kpf-speaking-grading/actions/workflows/ci.yml/badge.svg)](https://github.com/dongruiyue/kpf-speaking-grading/actions/workflows/ci.yml)
+
 **把学生剑桥五级（KET / PET / FCE）口语作业的音频或视频丢进来，本机转写 → 按剑桥口径诊断 → 生成「作业记录 / 家长版反馈 / 学生版」三份成品 → 交付前用校验器把"合规"变成退出码。**
 
 它是一套**给英语老师批口语作业的固定流程**：口径、数字和措辞每次都一样，不因批次而飘。干活的是一组 Python 脚本（可当纯命令行工具用），调度它们的是 `SKILL.md` 这份流程说明（agent skill 用法见文末）。
