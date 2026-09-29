@@ -68,7 +68,8 @@ mkdir -p ~/.kpf-speaking
 cp config.example.json ~/.kpf-speaking/config.json   # 然后编辑填空
 ```
 
-- **讯飞（推荐，发音分首选）**：在讯飞开放平台建应用后，**先在控制台"开通"中英文语音评测服务**（不开通接口会直接报错），再把 `appid / api_key / api_secret` 填进 `xfyun` 块。评的是作业里的念题部分，所以还要给 `--questions questions/<页号>.txt`（一行一题）。
+- **讯飞（推荐，发音分首选）**：要看**完整操作指引**（开哪个服务、抄哪三个字段、报错怎么查、额度怎么省）→ `docs/xfyun-setup.md`。一句话版：建应用 → **先在控制台"开通"中英文语音评测服务**（不开通接口会直接报错）→ 把 `appid / api_key / api_secret` 填进 `xfyun` 块。评的是念题部分，所以还要给 `--questions questions/<页号>.txt`（一行一题）。
+- **配完先自检**：`make doctor` 离线告诉你「凭证齐不齐、发音分会从哪个 provider 来、还差什么、下一步跑哪条命令」，**不联网、不花额度**。
 - **Azure（备用）**：`azure` 块的 `key` / `region`。代码按官方 REST 契约实现，但**尚未用真实 key 验证过**。
 - **Groq（可选转写加速）**：`groq_api_key`。
 - **都不配**：`--provider auto` 会降级到本机 whisper（**只出疑点、不出分**）再降级到教师人工，流程不会卡住，但**家长版里的发音分就得教师手填**。

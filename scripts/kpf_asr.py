@@ -33,7 +33,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 from kpf_analyze import mmss  # 时间戳唯一实现（含 59.97 → 01:00.0 的进位修正）  # noqa: E402
 
 CONFIG_PATH = Path.home() / ".kpf-speaking" / "config.json"
-XFTJ_DIR = Path.home() / "Documents" / "skills" / "xftj-transcribe" / "scripts"
+# 讯飞听见（xftj）走的是另一个 skill，本仓库不含它——所以位置允许被指路：
+# 环境变量 KPF_XFTJ_DIR > config 的 xftj.dir > 下面这个默认位置。
+DEFAULT_XFTJ_DIR = Path.home() / "Documents" / "skills" / "xftj-transcribe" / "scripts"
 MEDIA_EXT = {".m4a", ".mp3", ".wav", ".aac", ".flac", ".mp4", ".mov", ".m4v", ".caf", ".aiff"}
 GROQ_LIMIT_MB = 25
 
@@ -181,10 +183,31 @@ def engine_groq(src: Path, cfg: dict, model: str = "whisper-large-v3-turbo", lan
 
 # ---------------------------------------------------------------- 讯飞引擎
 
+def resolve_xftj_dir() -> Path:
+    """讯飞听见转发件的位置：环境变量 KPF_XFTJ_DIR > config 的 xftj.dir > 默认位置。
+
+    那个 skill 不在本仓库里，位置必须能被指路——否则换台机器就得改源码。
+    """
+    env = os.environ.get("KPF_XFTJ_DIR", "").strip()
+    if env:
+        return Path(env).expanduser()
+    try:
+        cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8")) if CONFIG_PATH.exists() else {}
+        custom = str((cfg.get("xftj") or {}).get("dir", "") or "").strip()
+    except Exception:  # noqa: BLE001 - 配置文件坏了不该连累其它引擎
+        custom = ""
+    return Path(custom).expanduser() if custom else DEFAULT_XFTJ_DIR
+
+
 def engine_xftj(src: Path, allow_pay: bool, language: str = "en") -> dict:
-    if not XFTJ_DIR.exists():
-        sys.exit(f"找不到讯飞 skill：{XFTJ_DIR}")
-    sys.path.insert(0, str(XFTJ_DIR))
+    xftj_dir = resolve_xftj_dir()
+    if not xftj_dir.is_dir():
+        sys.exit(f"找不到讯飞听见的转发件：{xftj_dir}\n"
+                 f"  它不在本仓库里（本仓库不含那个 skill）。装好后用任一方式指路：\n"
+                 f"    export KPF_XFTJ_DIR=/path/to/xftj-transcribe/scripts\n"
+                 f"    或在 {CONFIG_PATH} 里写 {{\"xftj\": {{\"dir\": \"...\"}}}}\n"
+                 f"  只想转写的话用默认的 --engine local（免费，音频不出本机）。")
+    sys.path.insert(0, str(xftj_dir))
     try:
         from xftj_api import XFTJClient
         from xftj_common import load_config as xftj_cfg, get_base_url

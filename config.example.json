@@ -9,7 +9,7 @@
     "api_key": "",
     "api_secret": ""
   },
-  "_xfyun": "可选但推荐（发音分的首选来源）。讯飞开放平台 https://console.xfyun.cn —— 建应用后，先在控制台【开通】中英文语音评测服务（未开通时接口直接报错），再抄下 APPID / APIKey / APISecret 填到这里。评的是作业里的念题部分，所以跑脚本时还要给 --questions questions/<页号>.txt（一行一题）。脚本用的端点是 wss://cn-east-1.ws-api.xf-yun.com/v1/private/s8e098720，如需覆盖可加 host / path 两个字段。",
+  "_xfyun": "可选但推荐（发音分的首选来源）。**完整操作指引见 docs/xfyun-setup.md**（开哪个服务、抄哪三个字段、报错对照表、额度怎么省）。一句话版：讯飞开放平台 https://console.xfyun.cn —— 注册并完成实名认证 → 建应用 → 在控制台【开通】「语音评测suntone」（未开通时接口直接报错）→ 把 APPID / APIKey / APISecret 抄到这里。评的是作业里的念题部分，所以跑脚本时还要给 --questions questions/<页号>.txt（一行一题）。脚本用的端点是 wss://cn-east-1.ws-api.xf-yun.com/v1/private/s8e098720，如需覆盖可加 host / path 两个字段。填完跑 `make doctor` 离线自检。",
 
   "azure": {
     "key": "",

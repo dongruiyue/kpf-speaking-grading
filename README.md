@@ -76,11 +76,15 @@ bash scripts/setup.sh
 ```bash
 mkdir -p ~/.kpf-speaking
 cp config.example.json ~/.kpf-speaking/config.json   # 然后编辑填空
+make doctor                                          # 离线自检：凭证齐不齐、发音分从哪来、下一步跑什么
 ```
+
+> 讯飞那一部分是**唯一需要你去控制台动手的**：注册 → 实名认证 → 建应用 → **开通「语音评测suntone」**
+> → 抄 `APPID / APIKey / APISecret`。逐步指引、报错对照表、额度怎么省：**`docs/xfyun-setup.md`**。
 
 | 块 | 用途 | 说明 |
 |---|---|---|
-| `xfyun` | **发音分首选**（讯飞 ISE 语音评测） | 免信用卡、免代理、有免费额度。建应用后**先在控制台「开通」中英文语音评测服务**（不开通接口直接报错），再填 `appid / api_key / api_secret`。评的是**念题部分**，所以跑的时候**必须给 `--questions questions/<页号>.txt`** |
+| `xfyun` | **发音分首选**（讯飞 ISE 语音评测） | 免信用卡、免代理、有免费额度。**要你先在控制台「开通」服务**（不开通接口直接报错），再填 `appid / api_key / api_secret`。评的是**念题部分**，所以跑的时候**必须给 `--questions questions/<页号>.txt`**。完整步骤见 `docs/xfyun-setup.md` |
 | `azure` | 备用发音评测 | F0 免费层每月 5 小时，`unscripted` 模式可评**答题**部分。**代码按官方 REST 契约实现，尚未用真实 key 验证过** |
 | `groq_api_key` | 云端转写加速 | 秒级出稿，但**学生音频会上传** |
 | （讯飞听见 `xftj`） | 转写第二意见 | 走 `kpf_asr.py --engine xftj`，消耗额度，需 `--yes-pay` 显式确认 |
