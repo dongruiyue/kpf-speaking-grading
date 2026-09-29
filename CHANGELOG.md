@@ -13,24 +13,20 @@
 ### 变更
 
 - `SKILL.md` 第 0 步、`README.md` 的 API key 段、`config.example.json` 的 `_xfyun` 注释统一指向 `docs/xfyun-setup.md`，并把"先在控制台开通服务"这一步提到显眼位置（不开通是接口报错的头号原因）。
-- 文档同步 Azure 的新行为（**按题切段 + 单段 ≤30 秒 + 覆盖情况 + 离线单测**）：`references/06-verification.md` 第四节、`README.md`（配置表、"尚未验证"清单、`make check` 演示输出）、`SKILL.md` 第 0 步与 provider 表、`config.example.json` 的 `_azure` 注释、`CONTRIBUTING.md`、`Makefile` 头部注释；**"仍未用真实 key 端到端验证过"这句标注全部保留**。
 
 ### 移除
 
 - **外部转写引擎（第二意见）**：它要去 import 本仓库之外另一个 skill 的代码（跨 skill 依赖），公开仓库里别人 clone 下来必然失败，已移除。转写入口现在只有本机 Whisper（默认，免费、音频不出本机）与 Groq，`--engine` 只剩这两个值。
+- **Azure 发音评估分支（整条路径）**：这条路径**从未用真实 key 跑通过**，而项目已确定发音分只用讯飞 ISE。留着它等于在仓库里挂一块"看着做完了其实没验证"的代码，还多出一整套只能标"未验证"的文档与单测。已删除：`scripts/kpf_azure.py`、`tests/test_azure_parse.py`、`provider_azure()`、config 的 `azure` 块、`make unit` 闸门，provider 链回到 `xfyun → local → manual`。**需要时从 git 历史取回**（这条路径最后一次可用状态见 `26a2c92`），取回后请先用真实 key 做一次冒烟再对外宣称可用。
 
 ### 修复
 
 - **校验器漏检：同一维度出现多行分数时只查第一行**（外部审查 2026-09-29 实测报出）。旧实现取每个维度命中的第一行来查分数，于是在合规家长版后面再补一行「语法与词汇：99 / 5」照样 PASS / 0 error。现在**命中列表里每一行都查**；家长版同一维度出现 ≥2 行分数直接判 error（内部档案里"四项预估表 + 家长反馈草稿"本来就各写一遍，不判错）。
 - **内部档案表格形态的分项分被误报「维度行未写分数」**。真实作业记录的 `分项评分` 表用的是裸数字单元格（`| 语法与词汇 | **2** | AI 预估 | …`，模板 `scripts/kpf_report.py` 先给占位符、填完就是这个形态），而取分只认 `X / 5` 与「N 分」两种写法，于是在每份记录上都误报。现在表格单元格里的裸数字也认（家长版本来就不许用表格，所以不影响家长版"必须写 X / 5"的要求）。顺带把三份真实作业记录上的误报从 3/3/4 条降到 1/3/2 条。
-- **Azure 响应解析只认一种形态，把符合官方文档的成功响应判成失败**（外部审查 Astra P1）。官方示例把 `AccuracyScore / FluencyScore / ProsodyScore / CompletenessScore / PronScore` **直接放在 `NBest[0]` 上**、逐词分直接放在 `Words[]` 的元素上（**没有** `PronunciationAssessment` 这一层）；旧实现只读 `NBest[0].PronunciationAssessment`，于是文档里那种成功响应会走进"没有 PronunciationAssessment"的失败分支并降级。现在**两种形态都认**（先扁平、后嵌套），两种都没有时明确报错并打印实际收到的顶层键与 `NBest[0]` 的键；解析抽成不依赖网络与 requests 的纯函数 `scripts/kpf_azure.py` 的 `parse_azure_response()`（0–5 映射仍只用 `kpf_xfyun.to_band()` 这一份实现）。
-- **Azure 把整段录音一次提交短音频接口，必然超限**（外部审查 Astra P1）。该接口对发音评估的音频上限是 **30 秒**（官方原文见 `references/06-verification.md` 第四节），而真实样本有 86–140 秒；`timeout=600` 是客户端超时，治不了服务端时长上限。现在**按题切段、逐段提交**（复用讯飞链路的题目对齐与切音频实现：`kpf_azure.plan_spans()`，以及从 `kpf_xfyun.segment_mp3_b64()` 里抽出的共享切片函数 `segment_pcm()`——讯飞那条已验证链路的对外行为没变），单段超过 30 秒的**直接跳过并写进返回结构的 `coverage`**，`发音.md` 里明写"覆盖了哪几段、哪几段没评"；拿不到词级时间戳时明确失败并给出替代方案（**不再退回整段上传**）；请求 timeout 改回 120 秒。
-- 新增 `tests/test_azure_parse.py`（离线、不需要 key、秒级）并把 `make check` 扩到**五道**闸门（新增 `make unit`）：官方示例响应解析、嵌套形态、两种形态都缺时报错并带实际键名、逐词分与最弱词排序、超限段被跳过并进 `coverage`、无时间戳时明确失败。**这条链仍然没有真实 key，所以测的是"解析"与"守卫"，不是"链路能通"。**
 
 ### 计划
 
 - **真人校准**：把 AI 分项分与真人老师给分做系统比对（做法见 `docs/calibration.md`）。这是 **1.0.0 的门槛**——至少 ≥5 个真实 case，且 ±1 档一致率可以对外公布。在此之前，本 skill 给出的分项分只能当教学参考，不能当成官方判定。
-- Azure 发音评估用真实 key 跑通完整链路（响应解析与 30 秒/段的切段守卫已按官方文档实现并有离线单测，见 `references/06-verification.md` 第四节）。
 - Groq 转写引擎用真实 key 跑一次（目前只有代码实现）。
 
 ## [0.9.0] - 2026-09-29
@@ -70,21 +66,21 @@
 ### 修复
 
 - **不再"拿不到分却出报告"**：引擎返回成功但总分缺失时改判失败并记 error；维度为空时输出 `—（未取得）`（旧版渲染成 `0.0 → 1/5` 且退出码 0）；成功句数为 0 时非零退出；乱读拒识的句子被剔除出平均并在报告里显式标注。
-- **讯飞 ISE 接进发音 provider 链**，顺序固定为 `xfyun → azure → local → manual`，新增 `--questions`；缺参考文本或凭证时明确 raise 并在 stderr 打印降级原因（旧版会静默落到不出分的本地模式）。
-- **0–5 映射收敛为唯一实现** `kpf_xfyun.to_band()`，`kpf_ise_stream.py` / `kpf_pronounce.py` 都 import 它；Azure 改用 `to_band(PronScore)`、去掉 `round(PronScore/20)`（银行家舍入会把 90 舍成 4）。
+- **讯飞 ISE 接进发音 provider 链**，顺序固定为 `xfyun → azure → local → manual`（其中 azure 已在 `[Unreleased]` 里整条删除），新增 `--questions`；缺参考文本或凭证时明确 raise 并在 stderr 打印降级原因（旧版会静默落到不出分的本地模式）。
+- **0–5 映射收敛为唯一实现** `kpf_xfyun.to_band()`，`kpf_ise_stream.py` / `kpf_pronounce.py` 都 import 它；Azure 那条路径也改用 `to_band(PronScore)`、去掉 `round(PronScore/20)`（银行家舍入会把 90 舍成 4）。
 - **念题差异只在匹配窗口内部计算**（窗口首尾的纯插入先剔除）：修复前，一整页五道题会被误报成"多读 …"；修复后假阳性消失，真差异（漏读、改词）仍被抓住。
 - **`MAX_FRAMES` 由 40 改为 500**：8 秒音频就有 40–52 帧，旧值永远收不到结果且不报错（只是分数全空）。
 - **`mmss()` 三处重复合并为一份并修进位**：`59.97` 不再输出 `00:60.0`，`119.99` 不再输出 `01:60.0`。
 - `requirements.txt` 补 `websockets>=12`：新机器装完 `kpf_xfyun.py` / `kpf_ise_stream.py` 必 ImportError。
 - 删除死代码与模块级副作用（`import base64`、`import json`、`SEP`、`import re` / `uuid` 等零引用项；`kpf_asr.py` 的网络准备从模块级移进 `main()`，`import kpf_asr` 不再改全局环境变量）。
 - **家长版模板**删掉自动填入的"平均每题 X 个词…语速 X 词/分钟…停顿 X 次"（旧版成品第 4 行已违反家长版红线）；互动交际措辞改由 `--form` 驱动，不再硬编码"本次是自问自答"。
-- `config.example.json` 补 `xfyun` 块；删掉与验证状态矛盾的"Azure 是唯一经过验证的发音给分路径"。
+- `config.example.json` 补 `xfyun` 块；删掉与验证状态矛盾的一句话（把某条评测路径说成"唯一经过验证的发音给分路径"）。
 - 命令示例修正：`crosscheck` 只接受恰好 2 个文件、转写产物名统一为 `<文件名>--<引擎>.json`、题库路径统一。
 
 ### 已知限制
 
 - **真人校准尚未完成**：本 skill 的分项分从未与真人老师的给分做过系统比对；现有的外部参照只有个别学生的教师口头判断（见 `references/06-verification.md` 第四节的"真人校准"条目）。
-- **发音分只覆盖念题部分**：答题部分没有参考文本，默认不评；要答题部分的权威分只能上 Azure 的自由说模式，而 Azure 链路尚未用真实 key 验证。
+- **发音分只覆盖念题部分**：答题部分没有参考文本，默认不评，**本 skill 不评答题部分**（要评它得有一个不需要参考文本的自由说接口，而本 skill 只有朗读型接口）。
 - **两个讯飞引擎不可混用**：`suntone`（主评分）与流式版（质检）在同一段录音上总分可差 18.3 分、映射到 0–5 差两档；流式版按"无中式口音"打分，与剑桥的可理解性口径不符，只作参考。
 - **同一学生的跨批次对比必须用同一引擎**：不同引擎的词数、停顿数不可比（本地 whisper 的停顿数系统性偏少约 67%）。
-- Azure、Groq 两条路径均未用真实凭证跑过（`references/06-verification.md` 第四节原样列出）。
+- Groq 一条路径未用真实凭证跑过（`references/06-verification.md` 第四节原样列出）。

@@ -1,5 +1,5 @@
 {
-  "_说明": "复制为 ~/.kpf-speaking/config.json 后填写。所有 key 都可留空，脚本会按 provider 链自动降级（讯飞 → Azure → 本机 whisper 疑点 → 教师人工），流程不会卡住。",
+  "_说明": "复制为 ~/.kpf-speaking/config.json 后填写。所有 key 都可留空，脚本会按 provider 链自动降级（xfyun → local → manual），流程不会卡住。",
 
   "groq_api_key": "",
   "_groq": "可选。免费申请 https://console.groq.com/keys —— 走云端转写（秒级），但学生音频会上传。需能访问 api.groq.com（通常要开代理，并设 KPF_USE_PROXY=1）。",
@@ -10,12 +10,6 @@
     "api_secret": ""
   },
   "_xfyun": "可选但推荐（发音分的首选来源）。**完整操作指引见 docs/xfyun-setup.md**（开哪个服务、抄哪三个字段、报错对照表、额度怎么省）。一句话版：讯飞开放平台 https://console.xfyun.cn —— 注册并完成实名认证 → 建应用 → 在控制台【开通】「语音评测suntone」（未开通时接口直接报错）→ 把 APPID / APIKey / APISecret 抄到这里。评的是作业里的念题部分，所以跑脚本时还要给 --questions questions/<页号>.txt（一行一题）。脚本用的端点是 wss://cn-east-1.ws-api.xf-yun.com/v1/private/s8e098720，如需覆盖可加 host / path 两个字段。填完跑 `make doctor` 离线自检。",
-
-  "azure": {
-    "key": "",
-    "region": ""
-  },
-  "_azure": "可选备用。语音服务发音评估，F0 免费层每月 5 小时，unscripted 模式可评答题部分。region 例如 eastasia / southeastasia。**按题切段提交**：该接口对发音评估的音频上限是 30 秒，超限的段会被跳过，并在发音报告里写明这个分覆盖了哪几段（响应解析按官方文档实现，NBest[0] 扁平字段与 PronunciationAssessment 两种形态都认，有离线单测 tests/test_azure_parse.py）。**仍未用真实 key 端到端验证过**（见 references/06-verification.md 第四节）。",
 
   "_vault": "可选，只有要把成品落进自己的笔记库时才需要（见 references/05-output-and-vault.md 第二节）。root 填库根目录，mapping 填「产物 → 目标目录」的相对路径；不填也能用，三份成品会落在 work/<日期>-<学生>/。落库永远是最后一步的可选项，不是必经流程。",
   "vault": {

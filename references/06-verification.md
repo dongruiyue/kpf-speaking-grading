@@ -49,11 +49,6 @@
 
 ## 四、尚未验证 / 待补的
 
-- [ ] **Azure 发音评估**：**仍未用真实 key 端到端跑过。** 已按官方文档实现，其中两块确定的部分有离线测试兜着（`tests/test_azure_parse.py`，`make unit` / `make check` 里跑；夹具就是官方文档那段示例响应，出处 URL 写在测试文件头部）：
-  - **响应解析**（`scripts/kpf_azure.py` 的 `parse_azure_response()`）：官方示例把 `AccuracyScore / FluencyScore / ProsodyScore / CompletenessScore / PronScore` **直接放在 `NBest[0]` 上**、逐词的 `AccuracyScore / ErrorType` 直接放在 `NBest[0].Words[]` 的元素上（**没有** `PronunciationAssessment` 这一层）；SDK／旧示例用的是嵌套 `PronunciationAssessment` 形态。**两种形态都认**（先扁平、后嵌套），两种都没有时明确报错，并把实际收到的顶层键与 `NBest[0]` 的键打印出来。
-  - **时长上限与按题切段**：该接口对发音评估的音频上限是 **30 秒**，客户端 timeout 改多大都不改变它，所以整段上传（真实样本 86–140 秒）必然超限。现在**按题切段、逐段提交**（切段复用讯飞链路的题目对齐与切片实现），单段超过 30 秒的**直接跳过并写进返回结构的 `coverage`**，`发音.md` 里明写"这个分覆盖了哪几段、哪几段没评"；拿不到词级时间戳时明确失败并给出替代方案（`--provider xfyun` / 换会写时间戳的引擎 / 先按题切好音频再喂 `--media`），**不会退回整段上传**。
-  - 仍待真实 key 验证的点：①真实响应能否被解析（若报错，错误信息里带着实际的键名，照着改）；②`ProsodyScore` 是否真有值——官方要求请求里带 `EnableProsodyAssessment: "True"` 才返回韵律分，本实现的请求头**没有带**，所以韵律分大概率是空的（渲染成"未取得"，不影响总分映射）；③各段是否都覆盖上、`coverage` 的段数是否与题目数对得上。
-  - 官方原文（2026-09-29 核对，<https://learn.microsoft.com/en-us/azure/ai-services/speech-service/rest-speech-to-text-short>）："Requests that use the REST API for short audio and transmit audio directly can contain no more than 60 seconds of audio. **For pronunciation assessment, the audio duration should be no more than 30 seconds.**"
 - [ ] **Groq 引擎**：代码已实现（`verbose_json` + `timestamp_granularities[]=word`），未用真实 key 跑过。注意免费层单文件 25MB 上限，且需能访问 `api.groq.com`。
 - [ ] **真人校准**：拿 3–5 条教师已给过分的录音，比对 AI 预估与教师判定，确认偏差方向后再批量使用。
 - [ ] **模糊对齐的容差**：逐题词数存在 **±2–4 词**的边界误差（取决于题目与答案交界处的切分）。验收标准定为**逐题答词数相对人工基线的偏差 ≤5%**，整体量级可靠，单题词数应当作近似值。
@@ -150,7 +145,7 @@
 
 ## 六、隐私
 
-本地引擎的音频**不出本机**，这是默认路径的设计目的（符合"学生资料只留本机"这条铁律）。一旦切到 Groq / 讯飞 / Azure，学生音频会上传到对应服务——切换前应先确认。
+本地引擎的音频**不出本机**，这是默认路径的设计目的（符合"学生资料只留本机"这条铁律）。一旦切到 Groq / 讯飞，学生音频会上传到对应服务——切换前应先确认。
 
 ## 七、2026-09-29 修复记录（交付就绪度整改）
 
@@ -171,10 +166,10 @@
 ### 7.2 脚本修复
 
 1. `requirements.txt` 补 `websockets>=12`（此前是手工装的；新机器装完 `kpf_xfyun.py` / `kpf_ise_stream.py` 必 ImportError）。
-2. `kpf_pronounce.py` 把**讯飞接进 provider 链**：`PROVIDERS` 顺序改为 `xfyun → azure → local → manual`，新增 `--questions`；**缺 `--questions` 或凭证时明确 raise 并在 stderr 打印降级原因**（旧版会静默落到 local，不出分）。
+2. `kpf_pronounce.py` 把**讯飞接进 provider 链**：`PROVIDERS` 顺序现在是 `xfyun → local → manual`（本条修复当时的链上还有一条备用评测路径，已在 `[Unreleased]` 删除），新增 `--questions`；**缺 `--questions` 或凭证时明确 raise 并在 stderr 打印降级原因**（旧版会静默落到 local，不出分）。
 3. **拿不到分不再出假报告**：`kpf_xfyun.py` 里 `ok=True` 但 `overall is None` 改判为失败并写入 errors；各维度平均值为空时输出 `—（未取得）`（旧版渲染成 `0.0 → 1/5` 且退出码 0）；**成功句数为 0 时非零退出**。`kpf_ise_stream.py` 同样处理，并把 `is_rejected=true` 的句子**剔除出平均**且在报告里显式标注。
 4. `MAX_FRAMES` 由 40 改为 **500**（实测 8 秒音频就 40–52 帧），且 `kpf_ise_stream.py` **复用该常量**，不再自己写字面量 500。
-5. 0–5 映射**唯一实现**：`kpf_xfyun.to_band()`（`BANDS = [(90,5),(80,4),(70,3),(60,2),(0,1)]`），与 `02-rubric.md` 5.3 一致；`kpf_ise_stream.py` / `kpf_pronounce.py` 都 import 它。Azure 改用 `to_band(PronScore)` 并去掉 `round(PronScore/20)`（后者有银行家舍入，90 会被舍成 4）；Azure 缺值走"未取得"而不是 0。
+5. 0–5 映射**唯一实现**：`kpf_xfyun.to_band()`（`BANDS = [(90,5),(80,4),(70,3),(60,2),(0,1)]`），与 `02-rubric.md` 5.3 一致；`kpf_ise_stream.py` / `kpf_pronounce.py` 都 import 它。那条备用评测路径也改用 `to_band(PronScore)` 并去掉 `round(PronScore/20)`（后者有银行家舍入，90 会被舍成 4），缺值走"未取得"而不是 0。
 6. `mmss()` 三处重复合并为 `kpf_analyze.mmss()` 一份，并修进位：`59.97 → 01:00.0`、`119.99 → 02:00.0`（旧版输出 `00:60.0` / `01:60.0`）。
 7. 念题差异**只在匹配窗口内部计算**（窗口首尾的纯插入先剔除）——实测学生乙 `P56` 一课的五条 `多读 …` 假阳性全部消失，真差异仍保留（见第四节"题目对齐的假阳性风险"）。同时把该局限写进 `01-task-map.md` 5.1 与 `02-rubric.md` 第七节。
 8. 删死代码与副作用：`kpf_asr.py` 的 `import base64`、`kpf_report.py` 的 `import json` + `SEP`、`kpf_xfyun.py` 的 `import re` + `import uuid`（均确认零引用）；`kpf_asr.py` 的 `_prepare_network()` 从模块级移进 `main()`，`import kpf_asr` 不再改全局 env。
@@ -182,7 +177,7 @@
 ### 7.3 交付就绪度
 
 1. `kpf_report.py` 的 `TPL_PARENT` 重写：加"一、本次评分"（逐行 X/5 + 免责句），**删掉 `{metrics}` 自动填入的"平均每题 X 个词…语速 X 词/分钟…停顿 X 次"**（旧版成品第 4 行已中招，违反家长版红线）；`TPL_RECORD` / `TPL_STUDENT` 同步对齐，互动交际措辞改由 `--form` 驱动，不再硬编码"本次是自问自答"。
-2. `config.example.json` 补 `xfyun` 块，删掉"Azure 是目前唯一能给出发音分且经过验证的路径"（与第四节"未验证"矛盾）。
+2. `config.example.json` 补 `xfyun` 块，删掉与第四节"未验证"矛盾的一句（把某条评测路径说成"目前唯一能给出发音分且经过验证的路径"）。
 3. `SKILL.md` 第 0 步补配置说明（含讯飞"先开通评测服务"）并删除不存在的功能描述。
 4. 命令示例修正：`crosscheck` 只接受恰好 2 个文件、题库路径为 `questions/FCE-P1-P102-holidays.txt`、转写产物名 `<文件名>--<引擎>.json`、讯飞报告产物名 `<转写名>-发音-ise.md`。
 5. 本文件 §一 的验收标准从"题目对齐 ✅ 都切出 5 题"改为"**逐题答词数相对人工基线的偏差 ≤5%**"，并把假阳性风险写进 §四。
@@ -197,7 +192,7 @@ cd ~/.agents/skills/kpf-speaking-grading
 # 真实底稿 → 家长版：含"一、本次评分"与逐行 X/5，且不含 语速/停顿/词数/AI/引擎/评测/讯飞/Whisper/识别/转写/数据/检测
 ```
 
-**仍未验证（沿用第四节，未变）**：Azure 端到端链路（无真实 key；响应解析与时长守卫已按文档实现并有离线单测，见第四节）、Groq 引擎、真人校准。
+**仍未验证（沿用第四节，未变）**：Groq 引擎、真人校准。
 
 ## 八、2026-09-29 质量保障机制：把"合规"变成退出码 ✅ 已实测
 

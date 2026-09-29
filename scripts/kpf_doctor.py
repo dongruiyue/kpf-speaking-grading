@@ -90,20 +90,6 @@ def check_xfyun(cfg: dict, chk: Check) -> bool:
     return True
 
 
-def check_azure(cfg: dict, chk: Check) -> bool:
-    a = cfg.get("azure") or {}
-    missing = [k for k in ("key", "region") if not str(a.get(k, "")).strip()]
-    if not a or len(missing) == 2:   # 示例配置里就有这个空块：空的 = 没配，不是填错
-        chk.say("  ⬜ azure：没配（可选备用；能评自由说的答题部分）")
-        return False
-    if missing:
-        chk.bad(f"azure：缺字段 {', '.join(missing)} —— key 与 region 要一起填")
-        return False
-    chk.ok(f"azure：已配 key={mask(a['key'])} region={a['region']}")
-    chk.say("      ⚠️  Azure 这条链**尚未用真实 key 验证过**（见 references/06-verification.md 第四节）")
-    return True
-
-
 def check_groq(cfg: dict, chk: Check) -> None:
     key = str(cfg.get("groq_api_key", "") or "").strip()
     if not key:
@@ -181,7 +167,6 @@ def main() -> None:
     chk.say()
     chk.say("一、发音分的来源（有任何一个，发音维度就不用老师手填）")
     has_xfyun = check_xfyun(cfg, chk)
-    has_azure = check_azure(cfg, chk)
 
     chk.say()
     chk.say("二、转写（可选云端引擎）")
@@ -195,17 +180,15 @@ def main() -> None:
 
     chk.say()
     chk.say("─" * 62)
-    if has_xfyun or has_azure:
-        engine = "讯飞 ISE（首选）" if has_xfyun else "Azure"
-        chk.say(f"结论：发音分有引擎来源 → **{engine}**。")
-        if has_xfyun:
-            chk.say("下一步（消耗 1 次额度验证真的打通）：")
-            chk.say(f"  echo \"What kind of music do you listen to in your free time? Why?\" > /tmp/one.txt")
-            chk.say(f"  {args.venv}/bin/python scripts/kpf_pronounce.py "
-                    f"work/<日期>-<学生>/<文件名>--local.json \\")
-            chk.say(f"      --provider xfyun --questions /tmp/one.txt --out /tmp/发音-test.md")
-            chk.say("看到 `provider=xfyun` 就是通了；看到 `[降级]` 就去 "
-                    "docs/xfyun-setup.md 第六节查那行原因。")
+    if has_xfyun:
+        chk.say("结论：发音分有引擎来源 → **讯飞 ISE**。")
+        chk.say("下一步（消耗 1 次额度验证真的打通）：")
+        chk.say(f"  echo \"What kind of music do you listen to in your free time? Why?\" > /tmp/one.txt")
+        chk.say(f"  {args.venv}/bin/python scripts/kpf_pronounce.py "
+                f"work/<日期>-<学生>/<文件名>--local.json \\")
+        chk.say(f"      --provider xfyun --questions /tmp/one.txt --out /tmp/发音-test.md")
+        chk.say("看到 `provider=xfyun` 就是通了；看到 `[降级]` 就去 "
+                "docs/xfyun-setup.md 第六节查那行原因。")
         code = 0
     else:
         chk.say("结论：**没有任何评测引擎**，发音分会降级成教师手填（流程仍然完整）。")

@@ -5,7 +5,7 @@
 本 skill **不给发音分**——AI 不许自己编发音分，这是硬规矩（`references/03-scoring-rules.md` 第六节）。
 发音分只有两个来源：
 
-1. **语音评测引擎**（讯飞 / Azure），或
+1. **语音评测引擎**（讯飞），或
 2. **老师听点位后手填**（`发音.md` 里会给你一张带时间的抽听点位表）。
 
 **讯飞是国内首选**：免信用卡、免代理、有免费额度，而且它独有「句末语调」和「逐词得分」——
@@ -147,7 +147,7 @@ echo "What kind of music do you listen to in your free time? Why?" > /tmp/one.tx
 | `header.code=10106 wrapper output data invalid(key or type)` | 请求体缺 `parameter.st.result` 块 | 脚本已内置修复；还报就是版本旧，更新仓库 |
 | `header.code=10163 unknown field` | `result` 放错了层级 | 同上 |
 | 握手阶段就断 / 401 / 服务端不回任何帧 | ① 服务**没开通** ② APPID 与 key 不是同一个应用 ③ **实名认证没做** | 回控制台逐项核第二节 |
-| `[降级] azure 不可用 …` 后接 `[降级] local …` | 讯飞没配好，链子在往后降（正常行为） | 看前面那条 xfyun 的原因 |
+| `[降级] xfyun 不可用 …` 后接 `[降级] local …` | 讯飞没配好，链子在往后降（正常行为） | 看前面那条 xfyun 的原因 |
 | 全部降级 → `provider=manual` | 没有任何可用引擎 | 发音分由老师手填（`发音.md` 里有抽听点位表） |
 
 ---
