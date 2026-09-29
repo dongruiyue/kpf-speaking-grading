@@ -77,8 +77,11 @@ def build_url(host: str, path: str, api_key: str, api_secret: str) -> str:
     return f"wss://{host}{path}?" + urlencode({"authorization": authorization, "date": date, "host": host})
 
 
-def segment_mp3_b64(src: Path, start: float, end: float, rate: int = 16000) -> str:
-    """截取 [start, end] 秒的音频，转成 16k 单声道 MP3 再 base64（接口只收 mp3/speex）。
+def segment_pcm(src: Path, start: float, end: float, rate: int = 16000):
+    """截取 [start, end] 秒的音频，返回 16k 单声道 s16 PCM（形状 (1, 采样数) 的 ndarray）。
+
+    **本 skill 的切音频唯一实现**：讯飞的 `segment_mp3_b64()` 与 Azure 的按段提交都走这里，
+    两边的切片口径因此不会漂移。
 
     **不能用 seek**：实测对 .mov 容器 seek 会静默失效，每段都从 0 秒解起，
     片段变成 [0, end]（Q2 上传了 33 秒、Q5 上传了 121 秒），评分结果全错。
@@ -105,12 +108,27 @@ def segment_mp3_b64(src: Path, start: float, end: float, rate: int = 16000) -> s
                     break
             if pos >= want_to:
                 break
+    finally:
+        inp.close()
+    if not pieces:
+        return np.zeros((1, 0), dtype="int16")
+    return np.ascontiguousarray(np.concatenate(pieces, axis=1))
 
-        buf = io.BytesIO()
-        out = av.open(buf, mode="w", format="mp3")
+
+def segment_mp3_b64(src: Path, start: float, end: float, rate: int = 16000) -> str:
+    """截取 [start, end] 秒的音频，转成 16k 单声道 MP3 再 base64（接口只收 mp3/speex）。
+
+    切片由 `segment_pcm()` 负责（与 Azure 那条路共用），这里只做编码。
+    """
+    import av
+    import numpy as np
+
+    pcm = segment_pcm(src, start, end, rate)
+    buf = io.BytesIO()
+    out = av.open(buf, mode="w", format="mp3")
+    try:
         ost = out.add_stream("libmp3lame", rate=rate)
-        if pieces:
-            pcm = np.ascontiguousarray(np.concatenate(pieces, axis=1))
+        if pcm.shape[1]:
             for i in range(0, pcm.shape[1], 1024):
                 piece = av.AudioFrame.from_ndarray(
                     np.ascontiguousarray(pcm[:, i:i + 1024]), format="s16", layout="mono")
@@ -119,10 +137,9 @@ def segment_mp3_b64(src: Path, start: float, end: float, rate: int = 16000) -> s
                     out.mux(pkt)
         for pkt in ost.encode(None):
             out.mux(pkt)
-        out.close()
-        data = buf.getvalue()
     finally:
-        inp.close()
+        out.close()
+    data = buf.getvalue()
     if not data:
         raise RuntimeError(f"音频片段为空（{start:.1f}–{end:.1f}s）")
     return base64.b64encode(data).decode("ascii")

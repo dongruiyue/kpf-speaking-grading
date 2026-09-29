@@ -87,7 +87,7 @@ make doctor                                          # 离线自检：凭证齐�
 | 块 | 用途 | 说明 |
 |---|---|---|
 | `xfyun` | **发音分首选**（讯飞 ISE 语音评测） | 免信用卡、免代理、有免费额度。**要你先在控制台「开通」服务**（不开通接口直接报错），再填 `appid / api_key / api_secret`。评的是**念题部分**，所以跑的时候**必须给 `--questions questions/<页号>.txt`**。完整步骤见 `docs/xfyun-setup.md` |
-| `azure` | 备用发音评测 | F0 免费层每月 5 小时，`unscripted` 模式可评**答题**部分。**代码按官方 REST 契约实现，尚未用真实 key 验证过** |
+| `azure` | 备用发音评测 | F0 免费层每月 5 小时，`unscripted` 模式可评**答题**部分。**按题切段提交**（该接口对发音评估的音频上限是 30 秒，超限的段跳过，报告里写明这个分覆盖了哪几段）。响应解析按官方文档实现（两种形态都认），**但整条链尚未用真实 key 端到端验证过** |
 | `groq_api_key` | 云端转写加速 | 秒级出稿，但**学生音频会上传** |
 
 **所有 key 都可以留空。** 缺了会按 provider 链自动降级（讯飞 → Azure → 本机 whisper 疑点 → 教师人工），并在 stderr 打印每一步降级原因——**不会静默给 0 分**。代价是家长版里的发音分需要老师手填。
@@ -98,11 +98,11 @@ make doctor                                          # 离线自检：凭证齐�
 
 下面三条命令在本仓库直接跑，输出是**实跑结果**（下方 `make check` 输出里的绝对路径已替换为 `<repo>`，其余逐字照抄）。
 
-### 1. `make check`——发布前必跑的四道闸门
+### 1. `make check`——发布前必跑的五道闸门
 
 ```bash
 $ make check
-python3 -m py_compile scripts/check_consistency.py scripts/check_publishable.py scripts/kpf_analyze.py scripts/kpf_anonymize.py scripts/kpf_asr.py scripts/kpf_calibrate.py scripts/kpf_ise_stream.py scripts/kpf_pronounce.py scripts/kpf_report.py scripts/kpf_validate.py scripts/kpf_xfyun.py tests/run_fixtures.py
+python3 -m py_compile scripts/check_consistency.py scripts/check_publishable.py scripts/kpf_analyze.py scripts/kpf_anonymize.py scripts/kpf_asr.py scripts/kpf_azure.py scripts/kpf_calibrate.py scripts/kpf_doctor.py scripts/kpf_ise_stream.py scripts/kpf_pronounce.py scripts/kpf_report.py scripts/kpf_validate.py scripts/kpf_xfyun.py tests/run_fixtures.py tests/test_azure_parse.py
 python3 scripts/check_consistency.py
 KPF 规则一致性校验 · <repo>
 
@@ -120,7 +120,7 @@ KPF 规则一致性校验 · <repo>
   ✅ kpf_report.py 三个报告模板都存在，核心维度行齐备
 
 [4] 引用完整性
-  ✅ 引用完整性：SKILL.md + references/*.md 里 123 处 scripts/references/questions 路径全部存在
+  ✅ 引用完整性：SKILL.md + references/*.md 里 124 处 scripts/references/questions 路径全部存在
 
 [5] 自我覆盖残留
   ✅ 无自我覆盖残留：没有「取代此前 / 效力高于 / 优先于本文件 / 已作废 / 本节的效力」
@@ -138,14 +138,16 @@ KPF 规则一致性校验 · <repo>
   ✅ 维度中英对照一致：4 组（A2 Key 3 项、无话语组织，kpf_report.py 三套模板都有 A2 例外说明）
 
 一致性校验通过：13 项断言全部成立
+python3 tests/test_azure_parse.py
 python3 tests/run_fixtures.py
-夹具回归 · 29 个用例 · 校验器 scripts/kpf_validate.py
+夹具回归 · 31 个用例 · 校验器 scripts/kpf_validate.py
 夹具目录 <repo>/tests/fixtures
 期望表   <repo>/tests/expected.json
 
 用例                                 kind/form/level    退出码  error  warning  结果
 ------------------------------------------------------------------------------------
 parent_fail_banned_word.md           家长/单篇/FCE           1      1        0  PASS
+parent_fail_duplicate_dim.md         家长/单篇/FCE           1      1        0  PASS
 parent_fail_fabricated.md            家长/单篇/FCE           1      1        0  PASS
 parent_fail_ket_discourse.md         家长/单篇/KET           1      1        0  PASS
 parent_fail_ket_discourse_en.md      家长/单篇/KET           1      1        0  PASS
@@ -172,18 +174,51 @@ record_draft.md                      作业记录/单篇/FCE       0      0     
 record_draft_via_flag.md             作业记录/单篇/FCE       0      0       23  PASS
 record_fail_draft_removed.md         作业记录/单篇/FCE       1     23        0  PASS
 record_pass.md                       作业记录/单篇/FCE       0      0        0  PASS
-record_pass_ket.md                   作业记录/单篇/KET           0      0        0  PASS
+record_pass_dim_table.md             作业记录/单篇/FCE       0      0        0  PASS
+record_pass_ket.md                   作业记录/单篇/KET       0      0        0  PASS
 student_pass.md                      学生/单篇/FCE           0      0        0  PASS
 ------------------------------------------------------------------------------------
 
-全绿：29/29 个用例与期望表一致（退出码 + error/warning 计数）
+全绿：31/31 个用例与期望表一致（退出码 + error/warning 计数）
 python3 scripts/check_publishable.py
 发布闸门 · <repo>
 黑名单 publishable-denylist.txt（10 条）· 命中就逐条列在下面
 
-提示：跳过：这里还不是 git 仓库（git rev-parse 未通过），`.venv/` 跟踪检查没跑
+提示：`.venv/` 没有被 git 跟踪（已确认）
 
-可发布：0 处命中（扫了 72 个文本文件）
+可发布：0 处命中（扫了 78 个文本文件）
+test_average_and_band (__main__.TestAggregate) ... ok
+test_no_rows_fails (__main__.TestAggregate) ... ok
+test_weakest_words_merged_keeping_lowest (__main__.TestAggregate) ... ok
+test_every_sendable_span_within_limit (__main__.TestDurationGuard) ... ok
+test_failed_segment_uses_same_note_shape (__main__.TestDurationGuard) ... ok
+test_overlong_segment_skipped_and_recorded (__main__.TestDurationGuard) ... ok
+test_per_question_segment_over_limit_is_skipped (__main__.TestDurationGuard) ... ok
+test_nbest_without_any_score_lists_keys (__main__.TestParseErrors) ... ok
+test_no_nbest_lists_top_keys (__main__.TestParseErrors) ... ok
+test_not_a_dict (__main__.TestParseErrors) ... ok
+test_nested_equals_flat (__main__.TestParseNestedForm) ... ok
+test_nested_word_scores (__main__.TestParseNestedForm) ... ok
+test_flat_band_uses_shared_to_band (__main__.TestParseOfficialSample) ... ok
+test_flat_scores (__main__.TestParseOfficialSample) ... ok
+test_flat_words (__main__.TestParseOfficialSample) ... ok
+test_missing_pronscore_is_not_zero (__main__.TestParseWords) ... ok
+test_weakest_words_capped_at_12 (__main__.TestParseWords) ... ok
+test_weakest_words_sorted_and_error_type_kept (__main__.TestParseWords) ... ok
+test_by_questions (__main__.TestPlanSpans) ... ok
+test_by_questions_reports_uncovered_head (__main__.TestPlanSpans) ... ok
+test_no_questions_windows (__main__.TestPlanSpans) ... ok
+test_no_timestamps_fails_with_actions (__main__.TestPlanSpans) ... ok
+test_no_timestamps_message_mentions_duration (__main__.TestPlanSpans) ... ok
+test_questions_without_words_fails (__main__.TestPlanSpans) ... ok
+test_windows_from_word_timestamps (__main__.TestPlanSpans) ... ok
+test_full_coverage_has_no_warning (__main__.TestRenderShowsCoverage) ... ok
+test_skipped_segment_is_visible (__main__.TestRenderShowsCoverage) ... ok
+
+----------------------------------------------------------------------
+Ran 27 tests in 0.003s
+
+OK
 ```
 
 **退出码 0。** 全程离线、不需要任何 API key、秒级跑完——所以 CI 里也只跑这一条（`.github/workflows/ci.yml`），不用装 faster-whisper 那类重依赖。
@@ -331,11 +366,11 @@ python3 scripts/kpf_validate.py work/<日期>-<学生>/<学生>-家长.md --kind
 | 双引擎交叉验证 | ✅ 自动标出 `00:18.2` 为高置信疑点，与人工听音判断的位置一致 |
 | **讯飞 ISE 语音评测** | ✅ 5 句念题实测通过（含 overall / 发音 / 韵律 / **句末语调** / 语速与逐词逐音素得分），耗时 8.4 秒；顺带抓到"特殊疑问句念成升调"这种纯人工听音容易漏的问题 |
 | **两个讯飞引擎的差异** | ✅ 同一段录音：suntone 总分 79.6（映射 3 档）vs 流式版 61.3（映射 2 档）——**差 18.3 分、差两档**，所以只作主评分 + 质检分工，绝不混用 |
-| 合规校验器与一致性断言 | ✅ 29 个夹具 + 13 项断言，`make check` 全绿（就是上面第 1 条演示） |
+| 合规校验器与一致性断言 | ✅ 31 个夹具 + 13 项断言 + 27 个 Azure 解析单测，`make check` 全绿（就是上面第 1 条演示） |
 
 ### 尚未验证（`references/06-verification.md` 第四节原样照搬）
 
-- ⬜ **Azure 发音评估**：代码按官方 REST 契约实现，但**未用真实 key 验证过**。配好 key 后应先拿一条录音做冒烟测试，确认返回字段解析无误。
+- ⬜ **Azure 发音评估**：**仍未用真实 key 端到端跑过。** 响应解析已按官方文档实现（`NBest[0]` 上的扁平分与嵌套 `PronunciationAssessment` 两种形态都认，两种都没有时报错并打印实际键名）；时长处理是**按题切段、单段不超过 30 秒**，超限的段跳过并在报告里写明覆盖情况——这两块有离线单测（`make unit`）。配好 key 后仍应先拿一条录音做冒烟测试：确认解析不报错、覆盖情况与题目数对得上（详见 `references/06-verification.md` 第四节）。
 - ⬜ **Groq 引擎**：代码已实现（`verbose_json` + `timestamp_granularities[]=word`），**未用真实 key 跑过**。注意免费层单文件 25MB 上限。
 - ⬜ **真人校准**：**本 skill 打出的分，从来没有和真人老师给的分做过系统比对。** 目前唯一的外部参照只是个别学生的教师口头判断。这是 **1.0.0 的门槛**，做法见 `docs/calibration.md`。
 - ⬜ **模糊对齐的容差**：逐题词数有 **±2–4 词**的边界误差；验收标准定在"逐题答词数相对人工基线偏差 ≤5%"，整体量级可靠，**单题词数只当近似值**。
@@ -344,15 +379,16 @@ python3 scripts/kpf_validate.py work/<日期>-<学生>/<学生>-家长.md --kind
 
 ## 持续性怎么保证
 
-**每次改规则都不许靠"我觉得"**，靠三个东西：
+**每次改规则都不许靠"我觉得"**，靠四个东西：
 
 ```bash
 python3 scripts/check_consistency.py     # 规则本身有没有漂移（13 项断言）
-python3 tests/run_fixtures.py            # 29 个匿名夹具的退出码与 error/warning 计数
+python3 tests/test_azure_parse.py        # Azure 响应解析与 30 秒时长守卫（离线、不需要 key）
+python3 tests/run_fixtures.py            # 匿名夹具的退出码与 error/warning 计数
 python3 scripts/check_publishable.py     # 发布闸门：真实姓名 / 个人路径 / 凭证 / 音视频名
 ```
 
-三条合起来就是 `make check`。另外两个工具负责"越用越准"：
+这四条（再加上语法级的 `py_compile`）就是 `make check` 的五道闸门（各自的退出码非零即红，也是 `make check` 的退出码）。另外两个工具负责"越用越准"：
 
 | 工具 | 干什么 | 判据 |
 |---|---|---|

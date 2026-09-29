@@ -49,7 +49,11 @@
 
 ## 四、尚未验证 / 待补的
 
-- [ ] **Azure 发音评估**：代码按官方 REST 契约实现，但**未用真实 key 验证过**。配置 key 后应先拿一条录音做冒烟测试，确认返回字段解析无误。
+- [ ] **Azure 发音评估**：**仍未用真实 key 端到端跑过。** 已按官方文档实现，其中两块确定的部分有离线测试兜着（`tests/test_azure_parse.py`，`make unit` / `make check` 里跑；夹具就是官方文档那段示例响应，出处 URL 写在测试文件头部）：
+  - **响应解析**（`scripts/kpf_azure.py` 的 `parse_azure_response()`）：官方示例把 `AccuracyScore / FluencyScore / ProsodyScore / CompletenessScore / PronScore` **直接放在 `NBest[0]` 上**、逐词的 `AccuracyScore / ErrorType` 直接放在 `NBest[0].Words[]` 的元素上（**没有** `PronunciationAssessment` 这一层）；SDK／旧示例用的是嵌套 `PronunciationAssessment` 形态。**两种形态都认**（先扁平、后嵌套），两种都没有时明确报错，并把实际收到的顶层键与 `NBest[0]` 的键打印出来。
+  - **时长上限与按题切段**：该接口对发音评估的音频上限是 **30 秒**，客户端 timeout 改多大都不改变它，所以整段上传（真实样本 86–140 秒）必然超限。现在**按题切段、逐段提交**（切段复用讯飞链路的题目对齐与切片实现），单段超过 30 秒的**直接跳过并写进返回结构的 `coverage`**，`发音.md` 里明写"这个分覆盖了哪几段、哪几段没评"；拿不到词级时间戳时明确失败并给出替代方案（`--provider xfyun` / 换会写时间戳的引擎 / 先按题切好音频再喂 `--media`），**不会退回整段上传**。
+  - 仍待真实 key 验证的点：①真实响应能否被解析（若报错，错误信息里带着实际的键名，照着改）；②`ProsodyScore` 是否真有值——官方要求请求里带 `EnableProsodyAssessment: "True"` 才返回韵律分，本实现的请求头**没有带**，所以韵律分大概率是空的（渲染成"未取得"，不影响总分映射）；③各段是否都覆盖上、`coverage` 的段数是否与题目数对得上。
+  - 官方原文（2026-09-29 核对，<https://learn.microsoft.com/en-us/azure/ai-services/speech-service/rest-speech-to-text-short>）："Requests that use the REST API for short audio and transmit audio directly can contain no more than 60 seconds of audio. **For pronunciation assessment, the audio duration should be no more than 30 seconds.**"
 - [ ] **Groq 引擎**：代码已实现（`verbose_json` + `timestamp_granularities[]=word`），未用真实 key 跑过。注意免费层单文件 25MB 上限，且需能访问 `api.groq.com`。
 - [ ] **真人校准**：拿 3–5 条教师已给过分的录音，比对 AI 预估与教师判定，确认偏差方向后再批量使用。
 - [ ] **模糊对齐的容差**：逐题词数存在 **±2–4 词**的边界误差（取决于题目与答案交界处的切分）。验收标准定为**逐题答词数相对人工基线的偏差 ≤5%**，整体量级可靠，单题词数应当作近似值。
@@ -193,7 +197,7 @@ cd ~/.agents/skills/kpf-speaking-grading
 # 真实底稿 → 家长版：含"一、本次评分"与逐行 X/5，且不含 语速/停顿/词数/AI/引擎/评测/讯飞/Whisper/识别/转写/数据/检测
 ```
 
-**仍未验证（沿用第四节，未变）**：Azure 完整链路（无真实 key）、Groq 引擎、真人校准。
+**仍未验证（沿用第四节，未变）**：Azure 端到端链路（无真实 key；响应解析与时长守卫已按文档实现并有离线单测，见第四节）、Groq 引擎、真人校准。
 
 ## 八、2026-09-29 质量保障机制：把"合规"变成退出码 ✅ 已实测
 

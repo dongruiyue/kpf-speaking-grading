@@ -70,7 +70,7 @@ cp config.example.json ~/.kpf-speaking/config.json   # 然后编辑填空
 
 - **讯飞（推荐，发音分首选）**：要看**完整操作指引**（开哪个服务、抄哪三个字段、报错怎么查、额度怎么省）→ `docs/xfyun-setup.md`。一句话版：建应用 → **先在控制台"开通"中英文语音评测服务**（不开通接口会直接报错）→ 把 `appid / api_key / api_secret` 填进 `xfyun` 块。评的是念题部分，所以还要给 `--questions questions/<页号>.txt`（一行一题）。
 - **配完先自检**：`make doctor` 离线告诉你「凭证齐不齐、发音分会从哪个 provider 来、还差什么、下一步跑哪条命令」，**不联网、不花额度**。
-- **Azure（备用）**：`azure` 块的 `key` / `region`。代码按官方 REST 契约实现，但**尚未用真实 key 验证过**。
+- **Azure（备用）**：`azure` 块的 `key` / `region`。**按题切段提交**——该接口对发音评估的音频上限是 **30 秒**，脚本会按题切段、逐段提交，超限的段跳过并在发音报告里写明覆盖了哪几段（响应解析按官方文档实现，`NBest[0]` 扁平字段与嵌套 `PronunciationAssessment` 两种形态都认，有离线单测 `tests/test_azure_parse.py`）。**仍未用真实 key 端到端验证过**。
 - **Groq（可选转写加速）**：`groq_api_key`。
 - **都不配**：`--provider auto` 会降级到本机 whisper（**只出疑点、不出分**）再降级到教师人工，流程不会卡住，但**家长版里的发音分就得教师手填**。
 
@@ -129,7 +129,7 @@ cp config.example.json ~/.kpf-speaking/config.json   # 然后编辑填空
 | 顺序 | provider | 说明 |
 |---|---|---|
 | 1 | **xfyun** | 讯飞语音评测 ISE，**国内首选：免信用卡、免代理、有免费额度**。评的是**念题部分**（朗读型接口必须有参考文本，所以**必须给 `--questions`**；缺参数会明确降级并提示）。返回 overall / pronunciation / rhythm / **rear_tone 句末语调** / fluency / integrity，外加逐词与音素得分——能直接定位到"哪个词、哪个音、语调升还是降" |
-| 2 | azure | Azure 发音评估，F0 免费层 5 小时/月（unscripted，可评自由说的**答题**部分） |
+| 2 | azure | Azure 发音评估，F0 免费层 5 小时/月（unscripted，可评自由说的**答题**部分）。**按题切段提交**：单段上限 30 秒，超限的段跳过并在报告里写出覆盖情况；响应解析按官方文档实现，但**未用真实 key 验证过** |
 | 3 | local | 用本机 whisper 的**词级置信度**给出"发音风险点位与等级"。**只出疑点，不出分数** |
 | 4 | manual | 输出抽听点位表，**由教师听点位后手填分数**（脚本没有回填入口，分数由教师写进作业记录） |
 

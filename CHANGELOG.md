@@ -13,15 +13,24 @@
 ### 变更
 
 - `SKILL.md` 第 0 步、`README.md` 的 API key 段、`config.example.json` 的 `_xfyun` 注释统一指向 `docs/xfyun-setup.md`，并把"先在控制台开通服务"这一步提到显眼位置（不开通是接口报错的头号原因）。
+- 文档同步 Azure 的新行为（**按题切段 + 单段 ≤30 秒 + 覆盖情况 + 离线单测**）：`references/06-verification.md` 第四节、`README.md`（配置表、"尚未验证"清单、`make check` 演示输出）、`SKILL.md` 第 0 步与 provider 表、`config.example.json` 的 `_azure` 注释、`CONTRIBUTING.md`、`Makefile` 头部注释；**"仍未用真实 key 端到端验证过"这句标注全部保留**。
 
 ### 移除
 
 - **外部转写引擎（第二意见）**：它要去 import 本仓库之外另一个 skill 的代码（跨 skill 依赖），公开仓库里别人 clone 下来必然失败，已移除。转写入口现在只有本机 Whisper（默认，免费、音频不出本机）与 Groq，`--engine` 只剩这两个值。
 
+### 修复
+
+- **校验器漏检：同一维度出现多行分数时只查第一行**（外部审查 2026-09-29 实测报出）。旧实现取每个维度命中的第一行来查分数，于是在合规家长版后面再补一行「语法与词汇：99 / 5」照样 PASS / 0 error。现在**命中列表里每一行都查**；家长版同一维度出现 ≥2 行分数直接判 error（内部档案里"四项预估表 + 家长反馈草稿"本来就各写一遍，不判错）。
+- **内部档案表格形态的分项分被误报「维度行未写分数」**。真实作业记录的 `分项评分` 表用的是裸数字单元格（`| 语法与词汇 | **2** | AI 预估 | …`，模板 `scripts/kpf_report.py` 先给占位符、填完就是这个形态），而取分只认 `X / 5` 与「N 分」两种写法，于是在每份记录上都误报。现在表格单元格里的裸数字也认（家长版本来就不许用表格，所以不影响家长版"必须写 X / 5"的要求）。顺带把三份真实作业记录上的误报从 3/3/4 条降到 1/3/2 条。
+- **Azure 响应解析只认一种形态，把符合官方文档的成功响应判成失败**（外部审查 Astra P1）。官方示例把 `AccuracyScore / FluencyScore / ProsodyScore / CompletenessScore / PronScore` **直接放在 `NBest[0]` 上**、逐词分直接放在 `Words[]` 的元素上（**没有** `PronunciationAssessment` 这一层）；旧实现只读 `NBest[0].PronunciationAssessment`，于是文档里那种成功响应会走进"没有 PronunciationAssessment"的失败分支并降级。现在**两种形态都认**（先扁平、后嵌套），两种都没有时明确报错并打印实际收到的顶层键与 `NBest[0]` 的键；解析抽成不依赖网络与 requests 的纯函数 `scripts/kpf_azure.py` 的 `parse_azure_response()`（0–5 映射仍只用 `kpf_xfyun.to_band()` 这一份实现）。
+- **Azure 把整段录音一次提交短音频接口，必然超限**（外部审查 Astra P1）。该接口对发音评估的音频上限是 **30 秒**（官方原文见 `references/06-verification.md` 第四节），而真实样本有 86–140 秒；`timeout=600` 是客户端超时，治不了服务端时长上限。现在**按题切段、逐段提交**（复用讯飞链路的题目对齐与切音频实现：`kpf_azure.plan_spans()`，以及从 `kpf_xfyun.segment_mp3_b64()` 里抽出的共享切片函数 `segment_pcm()`——讯飞那条已验证链路的对外行为没变），单段超过 30 秒的**直接跳过并写进返回结构的 `coverage`**，`发音.md` 里明写"覆盖了哪几段、哪几段没评"；拿不到词级时间戳时明确失败并给出替代方案（**不再退回整段上传**）；请求 timeout 改回 120 秒。
+- 新增 `tests/test_azure_parse.py`（离线、不需要 key、秒级）并把 `make check` 扩到**五道**闸门（新增 `make unit`）：官方示例响应解析、嵌套形态、两种形态都缺时报错并带实际键名、逐词分与最弱词排序、超限段被跳过并进 `coverage`、无时间戳时明确失败。**这条链仍然没有真实 key，所以测的是"解析"与"守卫"，不是"链路能通"。**
+
 ### 计划
 
 - **真人校准**：把 AI 分项分与真人老师给分做系统比对（做法见 `docs/calibration.md`）。这是 **1.0.0 的门槛**——至少 ≥5 个真实 case，且 ±1 档一致率可以对外公布。在此之前，本 skill 给出的分项分只能当教学参考，不能当成官方判定。
-- Azure 发音评估用真实 key 跑通完整链路（目前只有按官方契约的代码实现）。
+- Azure 发音评估用真实 key 跑通完整链路（响应解析与 30 秒/段的切段守卫已按官方文档实现并有离线单测，见 `references/06-verification.md` 第四节）。
 - Groq 转写引擎用真实 key 跑一次（目前只有代码实现）。
 
 ## [0.9.0] - 2026-09-29

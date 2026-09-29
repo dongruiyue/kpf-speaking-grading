@@ -227,6 +227,17 @@ def dim_line_score(line: str, dim: str) -> tuple[float | None, str | None]:
     m2 = re.search(r"(\d+(?:\.\d+)?)\s*分", line)
     if m2:
         return float(m2.group(1)), None
+    # 内部档案的表格写法：`| 语法与词汇 | **2** | AI 预估 | …`——分在单元格里，是裸数字，
+    # 没有「/ 5」。不认它，就会在**每份**作业记录上报「维度行未写分数」（而分数其实写着），
+    # 而这张表正是 scripts/kpf_report.py 生成的模板形态。家长版本来就不许用表格，所以这里
+    # 放宽不会影响家长版"必须写 X / 5"的要求。
+    if line.lstrip().startswith("|"):
+        cells = line.split("|")
+        if len(cells) >= 3:
+            cell = cells[2].strip().strip("*").strip()
+            m3 = re.fullmatch(r"(\d+(?:\.\d+)?)\s*(?:分)?", cell)
+            if m3:
+                return float(m3.group(1)), None
     return None, None
 
 
@@ -243,29 +254,40 @@ def is_dim_line(line: str, dim: str) -> bool:
 def check_dimension_lines(rep: Report, kind: str, level: str) -> None:
     dims = DIMENSIONS[level]
     for dim in dims:
-        hit = [(i, ln) for i, ln in rep.body() if is_dim_line(ln, dim)]
-        if not hit:
+        hits = [(i, ln) for i, ln in rep.body() if is_dim_line(ln, dim)]
+        if not hits:
             rep.error(0, f"缺少维度行「{dim}」（{LEVELS[level]} 必须有这几项：{'、'.join(dims)}）")
             continue
-        line_no, line = hit[0]
-        score, state = dim_line_score(line, dim)
-        if score is None and state is None:
-            if kind == "家长":
-                rep.error(line_no, f"维度行「{dim}」既没有 X / 5 分数、也没有「待补 / N/A」标注：{line.strip()[:60]}")
-            elif not PLACEHOLDER_BRACKET.search(line):
-                rep.warn(line_no, f"维度行「{dim}」未写分数（内部档案若缺分需写明原因）：{line.strip()[:60]}")
-            continue
-        if score is None:
-            continue
-        if score < 0 or score > 5 or (score * 2) % 1 != 0:
-            rep.error(line_no, f"维度分「{dim} = {score:g}」不在 0–5 区间内，或不是整数/半步（可半分，如 3.5）")
-            continue
-        if kind in ("学生", "作业记录"):
-            continue
-        # 家长版：不许给独白/自问自答录音的互动交际打分，也不许用分数糊弄
-        if dim == "互动交际" and any(k in rep.text for k in NO_INTERLOCUTOR):
-            rep.error(line_no, "互动交际给了分数，但文中写明本次是独自录音/无常人对手方——"
-                               "独白与自问自答必须写「待补」并说明原因（references/03-scoring-rules.md 第五节）")
+        # 命中列表里的**每一行**都要查。旧实现只看 hits[0]，于是"在合规家长版后面再补一行
+        # 「语法与词汇：99 / 5」"能拿到 PASS / 0 error（外部审查 2026-09-29 实测报出来的洞）。
+        scored: list[tuple[int, float]] = []
+        for line_no, line in hits:
+            score, state = dim_line_score(line, dim)
+            if score is None and state is None:
+                if kind == "家长":
+                    rep.error(line_no, f"维度行「{dim}」既没有 X / 5 分数、也没有「待补 / N/A」标注：{line.strip()[:60]}")
+                elif not PLACEHOLDER_BRACKET.search(line):
+                    rep.warn(line_no, f"维度行「{dim}」未写分数（内部档案若缺分需写明原因）：{line.strip()[:60]}")
+                continue
+            if score is None:
+                continue
+            if score < 0 or score > 5 or (score * 2) % 1 != 0:
+                rep.error(line_no, f"维度分「{dim} = {score:g}」不在 0–5 区间内，或不是整数/半步（可半分，如 3.5）")
+                continue
+            scored.append((line_no, score))
+            # 家长版：不许给独白/自问自答录音的互动交际打分，也不许用分数糊弄
+            if (kind == "家长" and dim == "互动交际"
+                    and any(k in rep.text for k in NO_INTERLOCUTOR)):
+                rep.error(line_no, "互动交际给了分数，但文中写明本次是独自录音/无常人对手方——"
+                                   "独白与自问自答必须写「待补」并说明原因（references/03-scoring-rules.md 第五节）")
+        # 同一维度出现多行分数：家长版第一段每个维度只能有一行（多出来那行就是错的，
+        # 而且很容易被当成"真正的分"）。内部档案不算错——作业记录里"四项预估表"和
+        # "家长反馈草稿"本来就各写一遍，所以那种文件不报，免得天天喊删行。
+        if len(scored) > 1 and kind == "家长":
+            where = "、".join(str(n) for n, _ in scored)
+            rep.error(scored[1][0],
+                      f"维度「{dim}」出现 {len(scored)} 行分数（第 {where} 行）："
+                      f"每个维度只能有一行分，先删掉多余的那行再交付")
 
 
 def check_placeholders(rep: Report, draft: bool = False) -> int:

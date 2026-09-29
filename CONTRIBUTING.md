@@ -28,10 +28,10 @@
 
 ## 三、提交前 `make check` 必须全绿
 
-四条闸门：
+五条闸门：
 
 ```bash
-make check      # py_compile + check_consistency.py + 夹具回归 + check_publishable.py
+make check      # py_compile + check_consistency.py + test_azure_parse.py + 夹具回归 + check_publishable.py
 ```
 
 新行为或行为变更，**必须补一个匿名夹具**：
