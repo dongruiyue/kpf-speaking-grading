@@ -19,15 +19,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG = Path.home() / ".kpf-speaking" / "config.json"
-# 讯飞听见的转发件不在本仓库里，默认位置与 kpf_asr.py 保持一致
-DEFAULT_XFTJ_DIR = Path.home() / "Documents" / "skills" / "xftj-transcribe" / "scripts"
 MODULES = ["faster_whisper", "av", "websockets", "requests", "numpy"]
 
 # 端点默认值从实现处取，免得两处硬编码各说各话；取不到就退回字面量（本脚本要能独立跑）
@@ -118,21 +115,6 @@ def check_groq(cfg: dict, chk: Check) -> None:
     chk.ok(f"groq_api_key：已配 {mask(key)}（注意：用它会把你学生的音频上传到第三方）")
 
 
-def check_xftj(cfg: dict, chk: Check) -> None:
-    """讯飞听见走的是另一个 skill；本仓库不含它，所以这里只负责说清楚去哪找。"""
-    env = os.environ.get("KPF_XFTJ_DIR", "").strip()
-    cfg_dir = str((cfg.get("xftj") or {}).get("dir", "") or "").strip()
-    path = Path(env or cfg_dir or DEFAULT_XFTJ_DIR)
-    source = "环境变量 KPF_XFTJ_DIR" if env else ("config 的 xftj.dir" if cfg_dir else "默认位置")
-    if path.is_dir():
-        chk.ok(f"讯飞听见转发件：找到 {path}（{source}）")
-    else:
-        chk.say(f"  ⬜ 讯飞听见转发件：没找到 {path}（{source}）")
-        chk.say("      不影响主流程——只有 `kpf_asr.py --engine xftj` 需要它，"
-                "而且它要另装、另有配置、还会消耗账户权益（见 docs/xfyun-setup.md 第七节）")
-        chk.say("      指路：export KPF_XFTJ_DIR=/path/to/xftj-transcribe/scripts")
-
-
 def check_questions(path: Path, chk: Check) -> None:
     if not path.is_dir():
         chk.bad(f"题库目录不存在：{path}")
@@ -140,7 +122,7 @@ def check_questions(path: Path, chk: Check) -> None:
     files = sorted(p for p in path.glob("*.txt"))
     if not files:
         chk.warn(f"{path} 里没有 .txt 题库 —— 讯飞是朗读型接口，**必须有参考文本**，"
-                 f"缺了会降级（见 docs/xfyun-setup.md 第九节）")
+                 f"缺了会降级（见 docs/xfyun-setup.md 第八节）")
         return
     chk.ok(f"题库 {path}：{len(files)} 份 .txt（一行一题；只放念题，放多了会多扣额度）")
     for f in files[:5]:
@@ -202,9 +184,8 @@ def main() -> None:
     has_azure = check_azure(cfg, chk)
 
     chk.say()
-    chk.say("二、转写与其它")
+    chk.say("二、转写（可选云端引擎）")
     check_groq(cfg, chk)
-    check_xftj(cfg, chk)
 
     chk.say()
     chk.say("三、题库与环境")

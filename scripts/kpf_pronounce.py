@@ -230,7 +230,7 @@ def provider_xfyun(payload: dict, media: Path, questions: Path | None,
 def provider_local(payload: dict, crosscheck_md: Path | None = None) -> dict:
     tokens = [t for t in payload["words"] if t.get("p") is not None]
     if not tokens:
-        raise RuntimeError("本引擎不返回词级置信度（groq / xftj），请用 --engine local 跑一份转写。")
+        raise RuntimeError("本引擎不返回词级置信度（groq），请用 --engine local 跑一份转写。")
 
     content = [t for t in tokens if norm(t["w"]) and norm(t["w"]) not in FUNCTION_WORDS]
     low = [t for t in content if t["p"] < LOW_P]

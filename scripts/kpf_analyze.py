@@ -317,7 +317,7 @@ def render(payload: dict, spans: list, warnings: list[str], args) -> str:
     L.append("## 四、疑似发音点位（待语音评测引擎或教师确认）")
     L.append("")
     if not payload["words"][0].get("p") and all(t.get("p") is None for t in payload["words"]):
-        L.append("> 本引擎不返回词级置信度（groq / xftj），请用 `--engine local` 跑一份，或跑 `kpf_asr.py crosscheck` 做双引擎比对。")
+        L.append("> 本引擎不返回词级置信度（groq），请用 `--engine local` 跑一份，或跑 `kpf_asr.py crosscheck` 做双引擎比对。")
     if points:
         L.append("| 时间 | 转写词 | 词级置信度 | 邻近上文 |")
         L.append("|---|---|---|---|")

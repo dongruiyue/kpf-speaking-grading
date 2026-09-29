@@ -4,7 +4,6 @@
 引擎：
   local   faster-whisper，免费无限，含词级置信度（默认）
   groq    Groq 免费层，秒级出稿，音频需上传（需 key）
-  xftj    讯飞听见，复用既有 skill，消耗额度
 
 统一 schema（供 kpf_analyze.py 消费）：
 {
@@ -15,7 +14,7 @@
 }
 
 用法：
-  kpf_asr.py transcribe <文件或文件夹> [--engine local] [--student X --class Y --level FCE] [--out DIR]
+  kpf_asr.py transcribe <文件或文件夹> [--engine local|groq] [--student X --class Y --level FCE] [--out DIR]
   kpf_asr.py crosscheck <a.json> <b.json>
   kpf_asr.py --download-model large-v3-turbo
 """
@@ -33,9 +32,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 from kpf_analyze import mmss  # 时间戳唯一实现（含 59.97 → 01:00.0 的进位修正）  # noqa: E402
 
 CONFIG_PATH = Path.home() / ".kpf-speaking" / "config.json"
-# 讯飞听见（xftj）走的是另一个 skill，本仓库不含它——所以位置允许被指路：
-# 环境变量 KPF_XFTJ_DIR > config 的 xftj.dir > 下面这个默认位置。
-DEFAULT_XFTJ_DIR = Path.home() / "Documents" / "skills" / "xftj-transcribe" / "scripts"
 MEDIA_EXT = {".m4a", ".mp3", ".wav", ".aac", ".flac", ".mp4", ".mov", ".m4v", ".caf", ".aiff"}
 GROQ_LIMIT_MB = 25
 
@@ -181,90 +177,6 @@ def engine_groq(src: Path, cfg: dict, model: str = "whisper-large-v3-turbo", lan
     return wrap_schema(meta, words, segments)
 
 
-# ---------------------------------------------------------------- 讯飞引擎
-
-def resolve_xftj_dir() -> Path:
-    """讯飞听见转发件的位置：环境变量 KPF_XFTJ_DIR > config 的 xftj.dir > 默认位置。
-
-    那个 skill 不在本仓库里，位置必须能被指路——否则换台机器就得改源码。
-    """
-    env = os.environ.get("KPF_XFTJ_DIR", "").strip()
-    if env:
-        return Path(env).expanduser()
-    try:
-        cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8")) if CONFIG_PATH.exists() else {}
-        custom = str((cfg.get("xftj") or {}).get("dir", "") or "").strip()
-    except Exception:  # noqa: BLE001 - 配置文件坏了不该连累其它引擎
-        custom = ""
-    return Path(custom).expanduser() if custom else DEFAULT_XFTJ_DIR
-
-
-def engine_xftj(src: Path, allow_pay: bool, language: str = "en") -> dict:
-    xftj_dir = resolve_xftj_dir()
-    if not xftj_dir.is_dir():
-        sys.exit(f"找不到讯飞听见的转发件：{xftj_dir}\n"
-                 f"  它不在本仓库里（本仓库不含那个 skill）。装好后用任一方式指路：\n"
-                 f"    export KPF_XFTJ_DIR=/path/to/xftj-transcribe/scripts\n"
-                 f"    或在 {CONFIG_PATH} 里写 {{\"xftj\": {{\"dir\": \"...\"}}}}\n"
-                 f"  只想转写的话用默认的 --engine local（免费，音频不出本机）。")
-    sys.path.insert(0, str(xftj_dir))
-    try:
-        from xftj_api import XFTJClient
-        from xftj_common import load_config as xftj_cfg, get_base_url
-    except ImportError as exc:
-        sys.exit(f"导入讯飞模块失败：{exc}")
-
-    cfg = xftj_cfg()
-    client = XFTJClient(cfg["apiKey"], get_base_url(cfg))
-
-    print(f"[xftj] 上传 {src.name} …", flush=True)
-    link = client.get_upload_link(src.name, src.stat().st_size)
-    client.upload_file(str(src), link["uploadLink"])
-    biz = client.start_transcription(link["uploadFileId"], language=language)
-    info = client.poll_transcription_status(biz["processId"], max_wait=900)
-    hj_id = info["hjId"]
-
-    benefits = client.query_benefits(hj_id)
-    quotas = []
-    for q in benefits.get("permissions", []):
-        quotas.append((q.get("userRoleId"), "permission", q.get("roleName"), q.get("remainQuantity")))
-    for q in benefits.get("personalQuotas", []):
-        quotas.append((q.get("id"), "personalQuota", q.get("name"), q.get("remainQuantity")))
-    if not quotas:
-        sys.exit("讯飞账号没有可用权益，无法解锁转写结果。请改用 local 引擎。")
-    if not allow_pay:
-        listing = "\n".join(f"  - {t}｜{n}｜剩余 {r}ms" for _, t, n, r in quotas)
-        sys.exit(
-            "讯飞引擎会消耗账户权益，需要显式确认。\n可用权益：\n"
-            f"{listing}\n确认后重跑并加 --yes-pay（默认建议改用免费的 local 引擎）。"
-        )
-
-    quota_id, quota_type, name, _ = quotas[0]
-    print(f"[xftj] 使用权益：{name}", flush=True)
-    client.pay_with_quota(hj_id, quota_id, quota_type)
-    origin_id, file_source = client.get_origin_audio_id(hj_id)
-    raw = client.get_transcript_results(hj_id, origin_id, result_type=16, file_source=file_source)
-    payload = json.loads(raw) if isinstance(raw, str) else raw
-
-    words, segments = [], []
-    for para in payload.get("ps", []):
-        buf = []
-        for w in para.get("words", []):
-            words.append({"w": w["text"].strip(), "start": round(w["time"][0] / 1000, 3),
-                          "end": round(w["time"][1] / 1000, 3), "p": None})
-            buf.append(w["text"].strip())
-        if buf:
-            segments.append({
-                "start": round(para["words"][0]["time"][0] / 1000, 3),
-                "end": round(para["words"][-1]["time"][1] / 1000, 3),
-                "text": " ".join(buf),
-            })
-    duration = words[-1]["end"] if words else 0.0
-    meta = {"engine": "xftj", "model": "iflyrec-type16", "duration": duration,
-            "word_probability": False, "hj_id": hj_id}
-    return wrap_schema(meta, words, segments)
-
-
 # ---------------------------------------------------------------- 交叉验证
 
 def crosscheck(a_path: Path, b_path: Path, window: float = 1.5, low_p: float = 0.5) -> str:
@@ -292,7 +204,7 @@ def crosscheck(a_path: Path, b_path: Path, window: float = 1.5, low_p: float = 0
             continue
         b_text = {norm(x["w"]) for x in neighbours}
         agree = norm(w["w"]) in b_text
-        # 任一方置信度低即可判定：讯飞 / Groq 不返回词级 p，只看一方会永远判不出高置信疑点
+        # 任一方的词级置信度低即算弱证据——Groq 不返回词级 p，只看一方就永远判不出高置信疑点
         weak = low_conf(w) or any(low_conf(x) for x in neighbours)
         shown = " / ".join(x["w"] for x in neighbours[:6]) + ("…" if len(neighbours) > 6 else "")
         when = w["start"]  # 显示该词自身时间，不要用 t0（会显示成负数）
@@ -330,14 +242,13 @@ def main() -> None:
 
     t = sub.add_parser("transcribe", help="转写一个文件或整个文件夹")
     t.add_argument("target", type=Path)
-    t.add_argument("--engine", choices=["local", "groq", "xftj"], default="local")
+    t.add_argument("--engine", choices=["local", "groq"], default="local")
     t.add_argument("--model", default="large-v3-turbo")
     t.add_argument("--student", default="")
     t.add_argument("--class", dest="klass", default="")
     t.add_argument("--level", default="")
     t.add_argument("--out", type=Path, default=Path("work"))
     t.add_argument("--language", default="en")
-    t.add_argument("--yes-pay", action="store_true", help="讯飞引擎：确认消耗账户权益")
 
     c = sub.add_parser("crosscheck", help="两份转写结果交叉验证")
     c.add_argument("a", type=Path)
@@ -378,8 +289,6 @@ def main() -> None:
         elif args.engine == "groq":
             payload = engine_groq(path, cfg, args.model if args.model != "large-v3-turbo" else "whisper-large-v3-turbo",
                                   args.language)
-        else:
-            payload = engine_xftj(path, args.yes_pay, args.language)
 
         payload["meta"].update({
             "file": str(path),

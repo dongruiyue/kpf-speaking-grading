@@ -467,8 +467,8 @@ def load_transcript_words(path: Path) -> list[str]:
                 words.append(item)
     if not words and texts:
         words = re.findall(r"[A-Za-z0-9'\u2019\-]+", " ".join(texts))
-    # 讯飞听见（xftj）的 type16 归档格式：`transcriptResult` 是二次编码的 JSON 字符串，
-    # 词在 `ps[].words[].text`。2026-09 以前那几批录音只有这种格式，不认它防编造就整批跑不了。
+    # 有的外部转写工具导出的是 `transcriptResult` 字段里再套一层 JSON 字符串的结构，
+    # 词在 `ps[].words[].text`（type16 归档格式）。2026-09 以前那几批录音只有这种格式，不认它防编造就整批跑不了。
     if not words and isinstance(data, dict) and isinstance(data.get("transcriptResult"), str):
         try:
             inner = json.loads(data["transcriptResult"])
@@ -487,7 +487,7 @@ def load_transcript_words(path: Path) -> list[str]:
                         words.append(item)
     if not words:
         fail(f"转写稿里没有可用的词序列（{path}）：需要 words[].w、text，"
-             f"或讯飞听见 type16 的 transcriptResult.ps[].words[].text；防编造检查无法执行")
+             f"或外部转写稿 type16 的 transcriptResult.ps[].words[].text；防编造检查无法执行")
     cleaned = [norm_phrase(w) for w in words]
     return [w for w in cleaned if w]
 
