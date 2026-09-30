@@ -25,6 +25,13 @@
   kpf_calibrate.py <case目录>...
   kpf_calibrate.py --root <工作区目录>        # 扫一级子目录，含 teacher.json 的才算 case
   kpf_calibrate.py <case目录>... --min-agreement 0.9 --out 报告.txt
+  kpf_calibrate.py --root <工作区目录> --exclude KET:互动交际   # 换个口径再算一遍
+
+--exclude 级别:维度（可重复）把某个级别的某个维度整体剔出统计，用来回答「这个结论对证据
+口径有多敏感」——A2 Key 的互动交际官方判据是「能维持简单交流 / 需要多少提示与支持」，纯转写
+里看不到考官提示几次、沉默了多久（references/02-rubric.md 第四节的「判档提醒」），所以那一
+项的证据本就不足。剔掉之后一致率怎么变，两种口径都由这一个开关复算出来。
+被剔掉的点绝不静默消失：表头写明剔了几点、剔的是哪些，「不进统计的部分」一节逐点列出。
 
 主指标是 ±1 档一致率（并列给出完全一致率，各自带分母）。±1 档是包含关系：完全一致的那几点
 也算在 ±1 档内，两者不能相加。--ai-party 控制 AI 侧取值：
@@ -76,6 +83,7 @@ MD_CANDIDATES = ["作业记录.md"]
 PLACEHOLDER = re.compile(r"〔[^〕\n]*〕")
 NO_EVIDENCE = ("待补", "n/a", "na", "none", "无", "—", "-", "–", "不适用")
 DIM_ORDER = {d: i for i, d in enumerate(["语法与词汇", "话语组织", "发音", "互动交际"])}
+LEVEL_ORDER = {l: i for i, l in enumerate(LEVELS)}   # 报告里排 --exclude 列表用：KET < PET < FCE
 
 
 class InputError(Exception):
@@ -126,14 +134,20 @@ def norm_level(raw, where: str) -> str:
 
 
 def norm_dim(raw) -> str | None:
-    """维度名归一：去 markdown 加粗与括号补充，再认英文别名（与校验器同一份对照）。"""
+    """维度名归一：去 markdown 加粗与括号补充，再认英文别名（与校验器同一份对照）。
+
+    比对两边都去掉空格：上面已经去掉了输入里的空格，别名一侧却带着空格，
+    「Discourse Management」这类多词英文名就会永远比不上（单一个 Pronunciation 反而能命中）。
+    只放宽输入侧可接受的写法，原来认得的写法结果不变。
+    """
     t = re.sub(r"[*`_\s]", "", str(raw)).split("：")[0].split(":")[0]
     t = re.sub(r"[（(].*?[)）]", "", t).strip()
     if t in DIMENSIONS["FCE"]:
         return t
-    low = re.sub(r"\s+", " ", t.lower().replace("&", "and"))
+    low = t.lower().replace("&", "and")
     for dim, aliases in DIM_ALIASES.items():
-        if low == dim.lower() or low in [a.replace("&", "and") for a in aliases]:
+        if any(low == re.sub(r"\s+", "", c.lower().replace("&", "and"))
+               for c in [dim, *aliases]):
             return dim
     return None
 
@@ -172,6 +186,36 @@ def check_dim_keys(dims: dict, level: str, where: str) -> None:
     if missing:
         raise InputError(f"{where} 缺维度 {missing}：{LEVELS[level]} 要写全 {'、'.join(expect)}，"
                          f"没评的写 null")
+
+
+def parse_excludes(raw_items: list[str], ap: argparse.ArgumentParser) -> set[tuple[str, str]]:
+    """--exclude 级别:维度 → 归一后的 {(级别, 维度)} 排除集。
+
+    三条都当场退出（usage + 中文提示，退出码 2）：不带冒号、维度名不认、该级别没这一维度。
+    宁可拦住也不猜：把 `KET:话语组织` 当成「KET 没有话语组织，那就算了」会悄悄放走一个
+    本来想剔的点，报告上的数字就再也没人核对得了。
+    """
+    out: set[tuple[str, str]] = set()
+    for raw in raw_items:
+        text = str(raw).strip()
+        if ":" not in text:
+            ap.error(f"--exclude 要写成「级别:维度」（半角冒号分隔），例如 --exclude KET:互动交际；"
+                     f"收到的是「{raw}」")
+        level_raw, _, dim_raw = text.partition(":")
+        try:
+            level = norm_level(level_raw, "--exclude")
+        except InputError as e:
+            ap.error(str(e))
+        dim = norm_dim(dim_raw)
+        if dim is None:
+            ap.error(f"--exclude「{raw}」的维度「{dim_raw}」不认：写 "
+                     f"{' / '.join(DIMENSIONS['FCE'])}，或与之一一对应的英文原名（"
+                     f"{'、'.join(a[0] for a in DIM_ALIASES.values())}）")
+        if dim not in DIMENSIONS[level]:
+            ap.error(f"--exclude「{raw}」：{level} 没有「{dim}」这一维度，"
+                     f"{level} 的维度是 {'、'.join(DIMENSIONS[level])}")
+        out.add((level, dim))
+    return out
 
 
 def load_teacher(case: Path) -> dict:
@@ -495,8 +539,24 @@ def render_matrix(points: list[Point], title: str) -> list[str]:
     return out
 
 
-def build_report(cases: list[Case], min_agreement: float, ai_party: str) -> tuple[str, bool]:
-    points = [p for c in cases for p in c.points()]
+def split_points(cases: list[Case], exclude: set[tuple[str, str]]) -> tuple[list[Point], list[Point]]:
+    """把维度点分成「进统计」和「被 --exclude 剔除」两堆。
+
+    按 (case 的级别, 点的维度) 判命中——同一个维度名在 KET 与 PET 下是两个独立的口径，
+    `--exclude 互动交际` 不写级别是不被接受的（见 parse_excludes）。剔除的那堆要原样带回去
+    列进报告，绝不静默丢。
+    """
+    kept: list[Point] = []
+    dropped: list[Point] = []
+    for c in cases:
+        for p in c.points():
+            (dropped if (c.level, p.dim) in exclude else kept).append(p)
+    return kept, dropped
+
+
+def build_report(cases: list[Case], min_agreement: float, ai_party: str,
+                 exclude: set[tuple[str, str]]) -> tuple[str, bool]:
+    points, dropped = split_points(cases, exclude)
     st = per_dim_stats(points)
     order = sorted(st, key=lambda d: DIM_ORDER.get(d, 99))
     used_cases = len({p.case_id for p in points})
@@ -521,6 +581,12 @@ def build_report(cases: list[Case], min_agreement: float, ai_party: str) -> tupl
     L.append("AI 来源：" + " · ".join(f"{k} {v} 个" for k, v in sorted(src_stat.items())))
     L.append(f"老师未评（null）{sum(len(c.unrated) for c in cases)} 点 · "
              f"AI 缺值 {sum(len(c.no_ai) for c in cases)} 点 · 二者都不进统计")
+    if exclude:
+        excl_txt = "、".join(f"{lv}:{dm}" for lv, dm in
+                             sorted(exclude, key=lambda x: (LEVEL_ORDER[x[0]],
+                                                            DIM_ORDER.get(x[1], 99))))
+        L.append(f"已按 --exclude 排除 {len(dropped)} 点（{excl_txt}）"
+                 f"；上面的可比维度点、分布与下面的所有统计都已扣掉这 {len(dropped)} 点")
     if smoke:
         L.append(f"⚠ 样本太少（进入统计的 case {used_cases} 个 < {MIN_SAMPLE}）：仅作冒烟，"
                  f"下面的数字不判红。")
@@ -612,6 +678,11 @@ def build_report(cases: list[Case], min_agreement: float, ai_party: str) -> tupl
         L.append(f"来源存疑（评分方不是 AI，被 --ai-party ai-only 剔除）{len(susp)} 点：")
         for cid, dim, band, party in susp:
             L.append(f"  - [{cid}] {dim}：{fmt(band)}（评分方「{party}」）")
+    if dropped:
+        L.append(f"被 --exclude 剔除（口径敏感性对照用；表头已写剔了哪几项）{len(dropped)} 点：")
+        for p in sorted(dropped, key=lambda p: (p.case_id, DIM_ORDER.get(p.dim, 99))):
+            L.append(f"  - [{p.case_id}] {p.dim}：官方 {fmt(p.teacher)} → AI {fmt(p.ai)}"
+                     f"（{fmt_diff(p.diff)} 档）")
     L.append("")
 
     red = False
@@ -650,7 +721,10 @@ def main() -> None:
                "                        裸 `2.5`；只有引擎原始分 `79.6 / 100` 而没有 ≈n/5 时报错\n"
                "                        ——档位换算的唯一实现在 kpf_xfyun.py，不在这里复制一份。\n"
                "半分与 null 都支持：老师给 null 的维度不进统计，但会单独列出来。\n"
-               "级别 → 应有维度：KET 3 项（无话语组织）/ PET、FCE 4 项，写错判输入错误。")
+               "级别 → 应有维度：KET 3 项（无话语组织）/ PET、FCE 4 项，写错判输入错误。\n"
+               "--exclude 级别:维度 可重复，把该级别的该维度整项剔出统计（报告里逐点列出，\n"
+               "不静默丢）：A2 Key 的互动交际在纯转写里看不到考官提示与沉默，证据本就不足，\n"
+               "剔与不剔两种口径都跑一遍才看得出结论对证据口径有多敏感。")
     ap.add_argument("cases", nargs="*", type=Path,
                     help="case 目录（每个里面要有 teacher.json）")
     ap.add_argument("--root", type=Path, default=None,
@@ -660,11 +734,21 @@ def main() -> None:
     ap.add_argument("--ai-party", choices=["any", "ai-only"], default="any",
                     help="AI 侧取值来源：any（默认，预估表里每行都算 AI 侧）／"
                          "ai-only（只认评分方写 AI 的行，其余列「来源存疑」）")
+    ap.add_argument("--exclude", action="append", default=[], metavar="级别:维度",
+                    help="把某个级别的某个维度整项剔出统计，可重复。写法是「级别:维度」"
+                         "（半角冒号），级别认 KET / PET / FCE（A2 Key / B1 Preliminary / "
+                         "B2 First 等价），维度认 语法与词汇 / 话语组织 / 发音 / 互动交际"
+                         "（或英文原名）。例如 --exclude KET:互动交际、"
+                         "--exclude FCE:Discourse Management。用途：A2 Key 的互动交际官方"
+                         "判据是「能维持简单交流 / 需要多少提示与支持」，纯转写里看不到考官"
+                         "提示了几次、沉默了多久，证据本就不足；剔掉之后重算一遍，才知道一致率"
+                         "对证据口径有多敏感。剔了几个点、剔的是哪几个，报告里都写明（绝不静默丢）")
     ap.add_argument("--out", type=Path, default=None, help="把报告同时写到这个文件")
     args = ap.parse_args()
 
     if not (0.0 <= args.min_agreement <= 1.0):
         ap.error(f"--min-agreement 要在 0–1 之间（现在是 {args.min_agreement}）")
+    exclude = parse_excludes(args.exclude, ap)
 
     try:
         dirs = collect_cases(args.cases, args.root)
@@ -672,7 +756,7 @@ def main() -> None:
     except InputError as e:
         fail(str(e))
 
-    report, red = build_report(cases, args.min_agreement, args.ai_party)
+    report, red = build_report(cases, args.min_agreement, args.ai_party, exclude)
     sys.stdout.write(report)
     if args.out is not None:
         args.out.write_text(report, encoding="utf-8")
