@@ -26,7 +26,8 @@
   kpf_calibrate.py --root <工作区目录>        # 扫一级子目录，含 teacher.json 的才算 case
   kpf_calibrate.py <case目录>... --min-agreement 0.9 --out 报告.txt
 
-主指标是 ±1 档一致率（并列给出完全一致率，各自带分母）。--ai-party 控制 AI 侧取值：
+主指标是 ±1 档一致率（并列给出完全一致率，各自带分母）。±1 档是包含关系：完全一致的那几点
+也算在 ±1 档内，两者不能相加。--ai-party 控制 AI 侧取值：
 默认 any（预估表里每一行都算 AI 侧——发音行常写成「评测引擎/教师」，那也仍是机器分）；
 ai-only 时只认评分方写 AI 的行，其余进「来源存疑」。
 
@@ -525,19 +526,19 @@ def build_report(cases: list[Case], min_agreement: float, ai_party: str) -> tupl
                  f"下面的数字不判红。")
     L.append("")
 
-    L.append("一、逐维度一致率（主指标是 ±1 档）")
-    L.append(wpad("维度", 12) + wpad("分母", 6) + wpad("完全一致", 17) + wpad("±1 档", 17)
+    L.append("一、逐维度一致率（主指标是 ±1 档，含完全一致）")
+    L.append(wpad("维度", 12) + wpad("分母", 6) + wpad("完全一致", 17) + wpad("±1 档（含完全一致）", 20)
              + wpad("平均带符号差", 14) + "平均绝对差")
     for d in order:
         s = st[d]
         exact = f"{s['exact']}/{s['n']} ({pct(s['exact'], s['n'])})"
         within = f"{s['within']}/{s['n']} ({pct(s['within'], s['n'])})"
-        L.append(wpad(d, 12) + wpad(str(s["n"]), 6) + wpad(exact, 17) + wpad(within, 17)
+        L.append(wpad(d, 12) + wpad(str(s["n"]), 6) + wpad(exact, 17) + wpad(within, 20)
                  + wpad(fmt_mean(s["mean_signed"]), 14) + f"{s['mean_abs']:.2f}")
     L.append("-" * 68)
     tot_exact = f"{ex}/{n} ({pct(ex, n)})"
     tot_within = f"{wi}/{n} ({pct(wi, n)})"
-    L.append(wpad("合计", 12) + wpad(str(n), 6) + wpad(tot_exact, 17) + wpad(tot_within, 17)
+    L.append(wpad("合计", 12) + wpad(str(n), 6) + wpad(tot_exact, 17) + wpad(tot_within, 20)
              + wpad(fmt_mean(signed), 14) + f"{absmean:.2f}")
     L.append("")
 
@@ -616,7 +617,7 @@ def build_report(cases: list[Case], min_agreement: float, ai_party: str) -> tupl
     red = False
     if smoke:
         concl = (f"结论：样本不足（进入统计的 case {used_cases} 个 < {MIN_SAMPLE}）→ 仅作冒烟："
-                 f"±1 档一致率 {wi}/{n}（{pct(wi, n)}）、完全一致 {ex}/{n}（{pct(ex, n)}）"
+                 f"±1 档一致率 {wi}/{n}（{pct(wi, n)}，含完全一致 {ex}/{n} = {pct(ex, n)}）"
                  f"还不能用来判红；凑满 {MIN_SAMPLE} 个 case 再回来看。")
     elif n == 0:
         concl = ("结论：没有任何可比维度点（老师全给 null？）→ 这次没算出东西，"
@@ -626,8 +627,8 @@ def build_report(cases: list[Case], min_agreement: float, ai_party: str) -> tupl
                  f"（退出码 1）：先改分歧清单里 |差| ≥ 1 档 的那 {big} 条，改完再跑一次。")
         red = True
     else:
-        concl = (f"结论：±1 档一致率 {wi}/{n}（{pct(wi, n)}）≥ 阈值 {min_agreement:.0%} → 绿灯；"
-                 f"完全一致 {ex}/{n}（{pct(ex, n)}）；整体 {fmt_mean(signed)} 档"
+        concl = (f"结论：±1 档一致率 {wi}/{n}（{pct(wi, n)}，含完全一致 {ex}/{n} = {pct(ex, n)}）"
+                 f"≥ 阈值 {min_agreement:.0%} → 绿灯；整体 {fmt_mean(signed)} 档"
                  f"（{direction}）")
         if worst:
             concl += f"；最易偏维度 {worst}（{fmt_mean(st[worst]['mean_signed'])} 档）"
