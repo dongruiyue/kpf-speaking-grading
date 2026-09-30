@@ -361,6 +361,10 @@ def render(payload: dict, spans: list, warnings: list[str], args) -> str:
     L.append(f"| 词标记总数（含念题） | {len(all_tokens)} |")
     L.append(f"| 整体语速（含念题） | {overall.get('wpm', 0)} 词/分 |")
     L.append(f"| 题目数 | {len([s for s in spans if s[0]])} |")
+    # 单独给一行"未定位题数"：不加它，上面那行只在数"找得到题干的题数"，
+    # 于是"下面有三行 Q、这里写题目数 2"看上去像 bug（2026-09-30 定）。两个数都是定位口径，
+    # 与"答题词数合计"不同——后者含开场段的推断区间。
+    L.append(f"| 未定位题数 | {len([s for s in spans if s[0] is None])} |")
     L.append(f"| 答题词数合计 | {total_ans_words} |")
     L.append(f"| 答题语速合计 | {round(total_ans_words / total_ans_dur * 60) if total_ans_dur else 0} 词/分 |")
     L.append(f"| 每题平均词数 | {round(total_ans_words / len(answers), 1) if answers else 0} |")
