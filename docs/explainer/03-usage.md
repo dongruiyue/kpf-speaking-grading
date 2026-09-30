@@ -72,17 +72,23 @@ make check
 #    （可选）把成品归进自己的笔记库，见 references/05-output-and-vault.md 第二节
 
 # ⑥ 交付前必须跑，三份都跑（有 error 就重做报告，不是改校验器）
-python3 scripts/kpf_validate.py work/<日期>-<学生>/<学生>-家长.md   --kind 家长     --form 单篇 --level FCE
-python3 scripts/kpf_validate.py work/<日期>-<学生>/<学生>-学生.md   --kind 学生     --form 单篇 --level FCE
+#    家长版与学生版**必须**给 --transcript：防编造是交付红线，不给就等于这项没跑过
+python3 scripts/kpf_validate.py work/<日期>-<学生>/<学生>-家长.md   --kind 家长     --form 单篇 --level FCE \
+    --transcript work/<日期>-<学生>/<文件名>--local.json
+python3 scripts/kpf_validate.py work/<日期>-<学生>/<学生>-学生.md   --kind 学生     --form 单篇 --level FCE \
+    --transcript work/<日期>-<学生>/<文件名>--local.json
 python3 scripts/kpf_validate.py work/<日期>-<学生>/<学生>-作业记录.md --kind 作业记录 --form 单篇 --level FCE
 
-# ⑥′ 防编造：把转写稿一起给进去，报告里引用的学生原句必须找得到
+# ⑥′ 防编造：报告里引用的学生原句必须找得到（相似度 < 0.85 → error）
 python3 scripts/kpf_validate.py work/<日期>-<学生>/<学生>-家长.md --kind 家长 --form 单篇 --level FCE \
     --transcript work/<日期>-<学生>/<文件名>--local.json
+#     确实拿不出转写稿时，只能加 --no-transcript-check 显式承认"本次未做这项检查"——
+#     不加就是 error，因为"忘了加参数"和"检查通过"在退出码上原本长得一样
 ```
 
 > 校验器只用 Python 标准库，**系统 `python3` 直接跑**，不必进 `.venv`；离线、不联网、不用凭证。
 > 有 error → 退出码 1；用法错误（如给家长版加 `--draft`）→ 退出码 2。
+> 另外两条现在也是 error、不能靠自觉：**家长/学生版没给 `--transcript`**、**语法与词汇/话语组织写了「待补」**。
 
 ## 四、零配置最小路径
 

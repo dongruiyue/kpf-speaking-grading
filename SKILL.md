@@ -114,6 +114,7 @@ cp config.example.json ~/.kpf-speaking/config.json   # 然后编辑填空
 输出固定包含：硬指标表（每题词数/答段秒数/语速/停顿次数/≥1s 停顿/最长停顿）、逐题问答原文、念题与标准题目的差异、可疑发音点位（低置信度词，带 `mm:ss`）。
 
 > **念题差异只作线索**：对齐窗口会把上一题答案的尾部算进题干，逐题词数有 ±2–4 词的边界误差，**不得据此单独下结论**（细则见 `references/01-task-map.md` 第 5.1 节）。
+> 两条 2026-09-30 新增的边界：**1–2 词的题干是弱定位证据**（答案里出现同形词也会 100% 命中，底稿会给警告）；**题目没定位上时答段是"推断区间"、带 `†` 标注**，可能含未识别的题干词，它的词数与语速只能当粗略参考、**不得据以判分**。
 
 ### 第 3 步 · 发音评分
 
@@ -184,13 +185,17 @@ cp config.example.json ~/.kpf-speaking/config.json   # 然后编辑填空
 三份成品写完后、**交到家长/学生手上之前**，必须跑校验器：
 
 ```bash
-python3 scripts/kpf_validate.py work/<日期>-<学生>/<学生>-家长.md --kind 家长 --form 单篇 --level FCE
-python3 scripts/kpf_validate.py work/<日期>-<学生>/<学生>-学生.md --kind 学生 --form 单篇 --level FCE
+# 家长版与学生版**必须**给 --transcript：防编造是交付红线，不给 = error
+python3 scripts/kpf_validate.py work/<日期>-<学生>/<学生>-家长.md --kind 家长 --form 单篇 --level FCE \
+    --transcript work/<日期>-<学生>/<文件名>--local.json
+python3 scripts/kpf_validate.py work/<日期>-<学生>/<学生>-学生.md --kind 学生 --form 单篇 --level FCE \
+    --transcript work/<日期>-<学生>/<文件名>--local.json
 python3 scripts/kpf_validate.py work/<日期>-<学生>/<学生>-作业记录.md --kind 作业记录 --form 单篇 --level FCE
 # 作业记录草稿形态（先存档后补分）：占位符降为 warning，其余检查不变；交付前必须转正式
 python3 scripts/kpf_validate.py work/<日期>-<学生>/<学生>-作业记录.md --kind 作业记录 --form 单篇 --level FCE --draft
-# 防编造：把转写稿一起给进去，报告里引用的学生原句必须在转写里找得到
+# 防编造：报告里引用的学生原句必须在转写里找得到
 # （相似度 <0.85 → error；0.85–0.92 → warning；≥0.92 通过。边界可用下面两个参数覆盖）
+# 确实没有转写稿时，只能加 --no-transcript-check 显式承认"本次未做这项检查"（会打进 stdout 摘要）
 python3 scripts/kpf_validate.py work/<日期>-<学生>/<学生>-家长.md --kind 家长 --form 单篇 --level FCE \
     --transcript work/<日期>-<学生>/<文件名>--local.json \
     [--quote-threshold 0.85] [--quote-warn-threshold 0.92]
@@ -199,6 +204,12 @@ python3 scripts/kpf_validate.py work/<日期>-<学生>/<学生>-家长.md --kind
 校验器**只用 Python 标准库**（系统 `python3` 直接跑，不必进 `.venv`），离线、不联网、不用凭证。
 **errors 决定退出码**：有 error → 退出码 1 + stderr 逐条打印行号与原因；用法错误（如给家长版加 `--draft`、
 `--quote-warn-threshold` 不大于 `--quote-threshold`）→ 退出码 2。
+
+**两条不能只靠自觉、必须由校验器拦的**：
+① 家长版/学生版**没有 `--transcript` 就是 error** —— 防编造是红线，而"没跑"和"跑过且通过"在退出码上
+原来长得一模一样；② **语法与词汇、话语组织这两行不许写「待补」** —— 它们由 AI 依据转写评、任何作业形态
+都评得出来，写待补就是没做；缺测的是发音（引擎没配/用不上）与互动交际（独白没有对手方），那两项照旧
+可以标待补，但必须写明原因。
 
 > **校验不通过必须重做报告，不得交付。** 回上一步改文本，不是改校验器；warnings 自己判断要不要动。
 > 校验通过后再按 `references/checklist.md` 逐项过一遍（每条红线都配了做法与自检命令）。

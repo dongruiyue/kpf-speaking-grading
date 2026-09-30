@@ -8,12 +8,19 @@
   - **errors 决定退出码**：有 error → `sys.exit(1)`；warnings 只打印，不影响退出码。
   - **stderr 打明细**（每条带行号），**stdout 只打一行摘要**。
   - 任何检查都不能"因为环境缺东西就静默跳过"：转写稿解析不了就直接报错并非零退出。
+    同理：家长版/学生版没给转写稿不是"跳过防编造"，而是 error（见 --no-transcript-check）。
 
 用法：
   kpf_validate.py <报告文件> --kind 家长|学生|作业记录 --form 单篇|完整模拟 \
       --level KET|PET|FCE [--transcript <转写.json>] \
-      [--draft] [--quote-threshold <float>] [--quote-warn-threshold <float>]
+      [--no-transcript-check] [--draft] \
+      [--quote-threshold <float>] [--quote-warn-threshold <float>]
 
+  --transcript             防编造检查用的转写稿：报告里引用的学生原句必须能在里面找得到。
+                           **家长版与学生版必给** —— 不给就是 error。
+  --no-transcript-check    显式承认"本次不做防编造检查"（只在确实没有转写稿时用）。
+                           家长/学生版不给 --transcript 又不加它 → error；加了会在 stdout 摘要里
+                           标注「未做防编造检查」——"没检查"和"检查通过"不能长得一样。
   --draft                  作业记录草稿形态：占位符残留由 error 降为 warning，其余检查不变；
                            只对 --kind 作业记录 有效（家长版/学生版传了 → 退出码 2）。
                            不传也行：作业记录的 frontmatter 写了「状态: 草稿」即自动进入草稿形态。
@@ -50,6 +57,20 @@ DIM_ALIASES = {
     "发音": ["Pronunciation"],
     "互动交际": ["Interactive Communication"],
 }
+
+# 由 AI 依据转写评、且任何作业形态都评得出来的两个维度（见 references/01-task-map.md 第三节）。
+# 它们写「待补」不是"这次测不到"，而是"没做"——外部审查 2026-09-30 实测：把家长版的
+# 语法与词汇、话语组织两行都改成「待补」，仍然拿到 PASS / 0 error。缺测的是另两项：
+# 发音（引擎没配或用不上）、互动交际（独白没有对手方），那两项照旧可以标待补并写原因。
+# A2 Key 没有话语组织，所以这条只对出现在该级别维度表里的维度生效。
+CORE_DIMS = ("语法与词汇", "话语组织")
+
+# 防编造是交付红线（checklist P0-1）：报告里引用的学生原句必须能在转写稿里找到。
+# 但这项检查只在给了 --transcript 时才跑，于是"没跑"和"跑过且通过"在退出码上长得一模一样
+# ——外部审查 2026-09-30 实测：同一份编造原句的家长版，不传转写稿 PASS、传了 FAIL。
+# 所以家长版与学生版**必须**给 --transcript；确实没有转写稿时，只能用 --no-transcript-check
+# 显式承认"本次未做这项检查"，而这个承认会打进 stdout 摘要，不会静默。
+TRANSCRIPT_REQUIRED_KINDS = ("家长", "学生")
 
 DISCLAIMER_FLAT = "这是单次录音的表现不作为考试总分预估"
 DISCLAIMER_RAW = "这是单次录音的表现，不作为考试总分预估"
@@ -270,6 +291,19 @@ def check_dimension_lines(rep: Report, kind: str, level: str) -> None:
                     rep.warn(line_no, f"维度行「{dim}」未写分数（内部档案若缺分需写明原因）：{line.strip()[:60]}")
                 continue
             if score is None:
+                # 占位符（〔待填〕…）留给占位符检查管：交付件里是 error、草稿形态降 warning，
+                # 在这里再报一次只会把同一个问题数两遍。
+                if PLACEHOLDER_BRACKET.search(line):
+                    continue
+                # 核心维度写「待补」= 没做，不是"这次测不到"（外部审查 2026-09-30 实测：
+                # 家长版这两行都改成待补，仍然 PASS / 0 error）。真正缺测的是发音与互动交际。
+                if dim in CORE_DIMS and kind in ("家长", "学生"):
+                    rep.error(line_no, f"核心维度「{dim}」写的是「{state}」：这两个维度由 AI 依据转写评，"
+                                       f"任何形态的作业都评得出来，交付件必须给 X / 5"
+                                       f"（真正缺测的是发音与互动交际，标待补时要写明原因）")
+                elif dim in CORE_DIMS:
+                    rep.warn(line_no, f"核心维度「{dim}」写的是「{state}」：作业记录是内部档案，"
+                                      f"这一项应当有档位（原始分与映射分都留，见 checklist P1-5）")
                 continue
             if score < 0 or score > 5 or (score * 2) % 1 != 0:
                 rep.error(line_no, f"维度分「{dim} = {score:g}」不在 0–5 区间内，或不是整数/半步（可半分，如 3.5）")
@@ -659,7 +693,13 @@ def main() -> None:
     ap.add_argument("--form", choices=["单篇", "完整模拟"], required=True)
     ap.add_argument("--level", choices=["KET", "PET", "FCE"], required=True)
     ap.add_argument("--transcript", type=Path, default=None,
-                    help="转写 JSON；给了就启用防编造检查（报告引用的学生原句必须在转写里找得到）")
+                    help="转写 JSON；给了就启用防编造检查（报告引用的学生原句必须在转写里找得到）。"
+                         "家长版与学生版**必须**给：不给就是 error（防编造是交付红线，"
+                         "不能因为忘了加参数就静默放行）")
+    ap.add_argument("--no-transcript-check", action="store_true",
+                    help="显式承认本次不做防编造检查（只在确实没有转写稿时用）。"
+                         "家长版/学生版不给 --transcript 又不加这个开关 → error；"
+                         "加了会在 stdout 摘要里标注「未做防编造检查」")
     ap.add_argument("--draft", action="store_true",
                     help="作业记录草稿形态：占位符残留由 error 降为 warning，其余检查不变；"
                          "只对 --kind 作业记录 有效")
@@ -713,8 +753,19 @@ def main() -> None:
     check_image_task(rep)
     check_complete_mock(rep, args.form, args.level)
 
+    # 防编造没跑过 ≠ 防编造通过：这项检查只在给了 --transcript 时才运行，所以"忘了加参数"
+    # 与"跑过且通过"在退出码上原来长得一模一样（外部审查 2026-09-30 实测：同一份编造原句的
+    # 家长版，不传转写稿 PASS、传了 FAIL）。家长版与学生的稿子都要拦。
+    fabrication_off = args.kind in TRANSCRIPT_REQUIRED_KINDS and args.transcript is None
     if args.transcript is not None:
         check_fabrication(rep, args.transcript, args.quote_threshold, quote_pass)
+    elif fabrication_off and not args.no_transcript_check:
+        rep.error(0, f"{args.kind}版没有给 --transcript：防编造检查（报告里引用的学生原句必须能在"
+                     f"转写稿里找得到）这次没有运行。补上 --transcript <转写.json>；确实没有转写稿时，"
+                     f"加 --no-transcript-check 显式承认本次未做这项检查")
+    # 显式关掉时要留下痕迹：这是"没检查"，不是"检查通过"，所以打进摘要行而不是悄悄过去
+    no_check_note = ("（未做防编造检查：--no-transcript-check）"
+                     if fabrication_off and args.no_transcript_check else "")
 
     for line_no, msg in rep.warnings:
         where = f"L{line_no}" if line_no else "全文"
@@ -727,7 +778,7 @@ def main() -> None:
             where = f"L{line_no}" if line_no else "全文"
             print(f"  {where} [error] {msg}", file=sys.stderr)
         print(f"FAIL {args.kind}/{args.form}/{LEVELS[args.level]} · {args.report} · "
-              f"{len(rep.errors)} error / {len(rep.warnings)} warning")
+              f"{len(rep.errors)} error / {len(rep.warnings)} warning{no_check_note}")
         sys.exit(1)
 
     summary = (f"PASS {args.kind}/{args.form}/{LEVELS[args.level]} · {args.report} · "
@@ -735,6 +786,7 @@ def main() -> None:
     if draft_mode:
         summary += (f"（草稿形态：占位符 {placeholder_count} 处未填，交付前必须补全；"
                     f"转正式后这些是 error）")
+    summary += no_check_note
     print(summary)
 
 

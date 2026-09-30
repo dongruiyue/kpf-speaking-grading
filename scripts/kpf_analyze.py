@@ -85,20 +85,31 @@ def _match_question(tokens: list[dict], targets: list[str], start: int,
                     slack: int = 3, strong: float = 0.9) -> tuple[int | None, int | None, float]:
     """把标准题目对齐到转写里的一段，返回 (题干起点, 题干终点, 相似度)。
 
-    四个必需的设计（每一个都被真实数据打回过一次）：
+    五个必需的设计（每一个都被真实数据打回过一次）：
     1. **不依赖 ASR 的标点**——Whisper 常不给念出来的问题加问号（实测 5 题里 3 题没有），
        所以题干终点由"最佳匹配窗口的右端"决定，而不是去找 `?`；
     2. **窗口长度受限**（题目词数 ±slack）——否则起点可以前移、把答案吞进题干；
     3. **滑动窗口 + 相似度**——学生念题常改词（`Which` 念成 `We each`），逐字匹配会整段失配；
     4. **提前收的阈值必须高（0.9）**——阈值放宽到 0.75 时，前面一个"勉强像"的位置会抢掉
-       后面"更像"的真位置（实测把答案段切少了 4 个词）。够像才提前收，否则取全局最佳。
+       后面"更像"的真位置（实测把答案段切少了 4 个词）。够像才提前收，否则取全局最佳；
+    5. **窗口下界只对短题干放宽**——原来窗口最少 3 个词（`j` 从 `i + 2` 起），短题干够不到
+       等长窗口：`Why?`（1 词）拿 3 词窗口去比，相似度最高也只有 0.50，低于 WINDOW_RATIO，
+       于是它永远判「未定位」，题干连同整题答案一起从底稿里消失。现在下界是
+       `i + min(2, max(1, qlen) - 1)`（1 词题从 i 起、2 词题从 i+1 起），窗口下限词数
+       `min(3, qlen)`。
+       **注意 `min(2, …)` 这个夹子不能省**：下界是"至少 3 词"写死在 `i + 2` 上的，跟 qlen 无关。
+       写成 `i + max(1, qlen) - 1` 会让 4 词题的最小窗口从 3 词变成 4 词、5 词题变成 5 词——
+       长题目的对齐结果整片漂移（实测：679 词的官方校准转写里 6 道题有 4 道换了位置）。
+       夹到 2 之后，qlen ≥ 3 时两条式子的取值与改动前逐字相同，长题目一个字节不变。
     """
     qlen = len(targets)
+    min_words = min(3, qlen)                        # qlen ≥ 3 时恒为 3，与改动前一致
+    j_from = min(2, max(1, qlen) - 1)               # qlen ≥ 3 时恒为 2，与改动前一致
     best: tuple[int | None, int | None, float] = (None, None, 0.0)
     for i in range(start, max(start + 1, len(tokens) - 2)):
-        for j in range(i + 2, min(i + qlen + slack, len(tokens))):
+        for j in range(max(i, i + j_from), min(i + qlen + slack, len(tokens))):
             window = [norm(t["w"]) for t in tokens[i:j + 1] if norm(t["w"])]
-            if len(window) < 3:
+            if len(window) < min_words:
                 continue
             ratio = difflib.SequenceMatcher(a=targets, b=window).ratio()
             if ratio > best[2]:
@@ -108,30 +119,108 @@ def _match_question(tokens: list[dict], targets: list[str], start: int,
     return best
 
 
+def _infer_unlocated(tokens: list[dict], marks: list, idx: int, owner: dict[int, int],
+                     question: str, ratio: float) -> tuple[list[dict] | None, str, str]:
+    """给一道「未定位」的题定答案区间：返回 (答案span 或 None, 底稿说明, 切分警告)。
+
+    为什么必须推断：对齐失败时题干和答案会一起从 spans 里消失，那一段词就只在「全篇指标」
+    里有、在「答题合计」里没有——两套数字对不上，教师也无从知道被漏掉的是哪一题。
+
+    为什么只有一部分未定位的题能拿到 span（一段词只能算一次，两题都算就是重复计数）：
+    - **前面没有已定位题目**（一开头就没人定位上）：区域 `[0, 下一道已定位题的题干起点)` 谁都
+      没认领，归这一段里的**第一题**，计入答题合计；同段后续题目与这个区间重叠，不重复计入。
+    - **前面有已定位题目**：那道题的答案区间按「答案跟在题干后面」的老规则一直延伸到下一道
+      已定位题的起点，区域整个落在它里面——本题的回答已经随它进了答题合计，再算一次就重复。
+      所以这里只报区间、不加数（旧版正是在这个位置写了句谎话：「改由相邻题目推断」，其实没推）。
+    - **前后都没有已定位题目**（全篇都没定位上）：不凭空造数，答案保持为空，只写一行说明。
+    三种情况都返回一段人话说明，底稿逐题写出来——任何一段词都不静默丢弃。
+    """
+    prev = next((i for i in range(idx - 1, -1, -1) if marks[i] is not None), None)
+    nxt = next((i for i in range(idx + 1, len(marks)) if marks[i] is not None), None)
+    if prev is None and nxt is None:
+        note = "题目未定位，前后都没有已定位题目，无法推断答案区间；本题答案记为空，不计入答题合计。"
+        return None, note, (f"第 {idx + 1} 题未能在转写里定位（对齐度 {ratio:.0%}）：题干不进底稿；"
+                            f"前后都没有已定位题目，无法推断答案区间，本题答案记为空、不计入答题合计，"
+                            f"请人工核对：{question[:40]}…")
+    lower = marks[prev][1] + 1 if prev is not None else 0
+    upper = marks[nxt][0] if nxt is not None else len(tokens)
+    seg = tokens[lower:upper]
+    if not seg:
+        note = "题目未定位，相邻已定位题目之间没有可推断的词（推断区间为空）；本题答案记为空，不计入答题合计。"
+        return None, note, (f"第 {idx + 1} 题未能在转写里定位（对齐度 {ratio:.0%}）：题干不进底稿；"
+                            f"相邻题目之间推断不出任何词，本题答案记为空、不计入答题合计，"
+                            f"请人工核对：{question[:40]}…")
+    span_desc = f"{mmss(seg[0]['start'])}–{mmss(seg[-1]['end'])}，{len(seg)} 词"
+    if prev is not None:
+        note = (f"题目未定位，其回答落在第 {prev + 1} 题的答段区间内（{span_desc}），无法单独切出；"
+                f"这些词已随第 {prev + 1} 题计入答题合计，本题不重复计入。")
+        return None, note, (f"第 {idx + 1} 题未能在转写里定位（对齐度 {ratio:.0%}）：题干不进底稿；"
+                            f"其回答落在第 {prev + 1} 题的答段区间 {span_desc} 内，"
+                            f"已随第 {prev + 1} 题计入答题合计、本题不重复计入，"
+                            f"请人工核对：{question[:40]}…")
+    claimed = owner.get(idx, idx)   # 开头这一段的第一题认领区间；缺失时（不该发生）就自己认领
+    if claimed == idx:
+        note = "题目未定位，答案为相邻题目之间的推断区间（可能含未识别的题干词）。"
+        return list(seg), note, (f"第 {idx + 1} 题未能在转写里定位（对齐度 {ratio:.0%}）：题干不进底稿；"
+                                 f"其答案改由相邻已定位题目之间的推断区间 {span_desc} 承担"
+                                 f"（可能含未识别的题干词），已计入答题合计，请人工核对：{question[:40]}…")
+    note = (f"题目未定位，与第 {claimed + 1} 题的推断区间（{span_desc}）重叠、无法分摊；"
+            f"已随第 {claimed + 1} 题计入答题合计，本题不重复计入。")
+    return None, note, (f"第 {idx + 1} 题未能在转写里定位（对齐度 {ratio:.0%}）：题干不进底稿；"
+                        f"本题与第 {claimed + 1} 题的推断区间 {span_desc} 重叠、无法分摊，"
+                        f"已随第 {claimed + 1} 题一并计入答题合计，请人工核对：{question[:40]}…")
+
+
 def split_by_questions(tokens: list[dict], questions: list[str]) -> tuple[list[dict], list[str]]:
-    """按标准题目定位每题的边界。返回 [(问题span, 答案span, 念题差异)] 与对齐警告。"""
+    """按标准题目定位每题的边界。返回 [(问题span, 答案span, 念题差异)] 与对齐警告。
+
+    未定位的题目答案 span 见 `_infer_unlocated`：要么是「相邻已定位题目之间的推断区间」
+    （第三项说明里写明），要么为空（说明里写明为什么空）——旧版这里是 `(None, None, "未定位")`，
+    整题（题干 + 答案）无声消失，且警告还宣称"已改由相邻题目推断"，与代码实际行为不符。
+    """
     qtok = [[norm(w) for w in q.split() if norm(w)] for q in questions]
     warnings: list[str] = []
     marks: list[tuple[int, int, float] | None] = []
+    ratios: list[float] = []   # 每题的最佳对齐度（未定位的也要留着，警告里要报）
     cursor = 0
 
     for idx, (question, targets) in enumerate(zip(questions, qtok)):
         found, q_end, ratio = _match_question(tokens, targets, cursor)
+        ratios.append(ratio)
         if found is None or ratio < WINDOW_RATIO:
-            warnings.append(
-                f"第 {idx + 1} 题对齐度偏低（{ratio:.0%}），已跳过；该题答案边界改由相邻题目推断，请人工核对："
-                f"{question[:40]}…"
-            )
             marks.append(None)
             continue
         marks.append((found, q_end, ratio))
         cursor = q_end + 1
+        if len(targets) < 3:
+            # 放开了短题目的窗口下限，代价是「1–2 词的题目」本身就属于弱证据：答案里出现
+            # 同形词（`and you` / `why`）也能拿到 100% 对齐。这是放宽窗口后新引入的误判面，
+            # 所以在底稿里明说，让教师核对边界，而不是装作对齐结果和长题目一样可靠。
+            warnings.append(
+                f"第 {idx + 1} 题只有 {len(targets)} 词，属于弱定位证据（答案里出现同形词也会命中），"
+                f"边界请人工核对：{question[:40]}…"
+            )
+
+    # 开头那一段「谁都没认领」的连续未定位题：区间只能记一次，归这一段的第一题。
+    owner: dict[int, int] = {}
+    head_run: int | None = None
+    for idx in range(len(marks)):
+        if marks[idx] is not None:
+            head_run = None
+            continue
+        if any(m is not None for m in marks[:idx]):
+            continue           # 前面有已定位题 → 那题已经覆盖了这个区域（见 _infer_unlocated）
+        if head_run is None:
+            head_run = idx
+        owner[idx] = head_run
 
     spans = []
     for idx, question in enumerate(questions):
         mark = marks[idx]
         if mark is None:
-            spans.append((None, None, "未定位"))
+            aspan, note, warn = _infer_unlocated(tokens, marks, idx, owner, question, ratios[idx])
+            spans.append((None, aspan, note))
+            warnings.append(warn)
             continue
         found, q_end, ratio = mark
         # 答案末边界 = 下一道「定位成功」题目的起点；后续全失败才落到文件末尾，并明确警告
@@ -283,13 +372,20 @@ def render(payload: dict, spans: list, warnings: list[str], args) -> str:
     L.append("|---|---|---|---|---|---|---|---|")
     for i, (qspan, aspan, _d) in enumerate(spans, 1):
         if not aspan:
+            if qspan is None:
+                # 未定位的题也必须占一行：整行消失会让教师以为"这题不存在"（旧版就是这么静默丢的）
+                L.append(f"| Q{i} | — | — | — | — | — | — | 未定位 |")
             continue
         m = span_metrics(aspan)
         fill = "/".join(m["fillers"]) if m["fillers"] else "—"
-        L.append(f"| Q{i} | {m['n']} | {m['dur']} | {m['wpm']} | {len(m['pauses'])} | "
+        mark = "†" if qspan is None else ""     # 题干没定位上 → 这个答段是推断出来的
+        L.append(f"| Q{i}{mark} | {m['n']} | {m['dur']} | {m['wpm']} | {len(m['pauses'])} | "
                  f"{len(m['long_pauses'])} | {m['max_pause']:.2f}s | {fill} |")
     L.append("")
     L.append(f"> 停顿 = 词间间隔 ≥{PAUSE_MIN}s；长停顿 = ≥{PAUSE_LONG}s。低语速本身不直接扣分，看它是否伴随内容讲不完或逻辑断裂。")
+    if any(s[0] is None and s[1] for s in spans):
+        L.append("> † 该题未定位：答段是相邻已定位题目之间的**推断区间**，可能含未识别的题干词，"
+                 "词数/语速只能当粗略参考，不计入任何自动判分。")
     L.append("")
 
     L.append("## 三、逐题原文（问题 / 回答）")
@@ -302,8 +398,11 @@ def render(payload: dict, spans: list, warnings: list[str], args) -> str:
         L.append("")
         if qspan:
             L.append(f"- **问**（学生念题）：{' '.join(t['w'] for t in qspan)}")
-        if diff:
-            L.append(f"- **念题与标准题目差异**：{diff}")
+            if diff:
+                L.append(f"- **念题与标准题目差异**：{diff}")
+        elif diff:
+            # 未定位：第三项装的是「这段答案是推断的还是没推出来」的说明，逐题写一行，绝不静默
+            L.append(f"- **未定位**：{diff}")
         if aspan:
             m = span_metrics(aspan)
             L.append(f"- **答**（{m['n']} 词 / {m['dur']} 秒 / {m['wpm']} 词每分 / "

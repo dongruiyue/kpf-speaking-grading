@@ -130,7 +130,7 @@ KPF 规则一致性校验 · <repo>
   ✅ kpf_report.py 三个报告模板都存在，核心维度行齐备
 
 [4] 引用完整性
-  ✅ 引用完整性：SKILL.md + references/*.md 里 123 处 scripts/references/questions 路径全部存在
+  ✅ 引用完整性：SKILL.md + references/*.md 里 129 处 scripts/references/questions 路径全部存在
 
 [5] 自我覆盖残留
   ✅ 无自我覆盖残留：没有「取代此前 / 效力高于 / 优先于本文件 / 已作废 / 本节的效力」
@@ -147,21 +147,26 @@ KPF 规则一致性校验 · <repo>
 [9] 维度中英对照与 A2 例外说明
   ✅ 维度中英对照一致：4 组（A2 Key 3 项、无话语组织，kpf_report.py 三套模板都有 A2 例外说明）
 
+[10] 02-rubric 四节档位表结构（张数 / 6 档 / 偶数档与 0 档口径）
+  ✅ 02-rubric 档位表结构一致：11 张表 × 6 档，偶数档=相邻两档混合、0 档=低于 1 档
+
 一致性校验通过：14 项断言全部成立
 python3 tests/run_fixtures.py
-夹具回归 · 31 个用例 · 校验器 scripts/kpf_validate.py
+夹具回归 · 33 个用例 · 校验器 scripts/kpf_validate.py
 夹具目录 <repo>/tests/fixtures
 期望表   <repo>/tests/expected.json
 
 用例                                 kind/form/level    退出码  error  warning  结果
 ------------------------------------------------------------------------------------
 parent_fail_banned_word.md           家长/单篇/FCE           1      1        0  PASS
+parent_fail_core_pending.md          家长/单篇/FCE           1      1        0  PASS
 parent_fail_duplicate_dim.md         家长/单篇/FCE           1      1        0  PASS
 parent_fail_fabricated.md            家长/单篇/FCE           1      1        0  PASS
 parent_fail_ket_discourse.md         家长/单篇/KET           1      1        0  PASS
 parent_fail_ket_discourse_en.md      家长/单篇/KET           1      1        0  PASS
 parent_fail_metrics.md               家长/单篇/FCE           1     25        3  PASS
 parent_fail_missing_section.md       家长/单篇/FCE           1      1        1  PASS
+parent_fail_no_transcript.md         家长/单篇/FCE           1      1        0  PASS
 parent_fail_pause_quantified.md      家长/单篇/FCE           1      2        0  PASS
 parent_fail_solo_interaction.md      家长/单篇/FCE           1      1        0  PASS
 parent_fail_speed_quantified.md      家长/单篇/FCE           1      1        0  PASS
@@ -188,14 +193,14 @@ record_pass_ket.md                   作业记录/单篇/KET       0      0     
 student_pass.md                      学生/单篇/FCE           0      0        0  PASS
 ------------------------------------------------------------------------------------
 
-全绿：31/31 个用例与期望表一致（退出码 + error/warning 计数）
+全绿：33/33 个用例与期望表一致（退出码 + error/warning 计数）
 python3 scripts/check_publishable.py
 发布闸门 · <repo>
 黑名单 publishable-denylist.txt（10 条）· 命中就逐条列在下面
 
 提示：`.venv/` 没有被 git 跟踪（已确认）
 
-可发布：0 处命中（扫了 76 个文本文件）
+可发布：0 处命中（扫了 84 个文本文件）
 ```
 
 **退出码 0。** 全程离线、不需要任何 API key、秒级跑完——所以 CI 里也只跑这一条（`.github/workflows/ci.yml`），不用装 faster-whisper 那类重依赖。
@@ -205,16 +210,21 @@ python3 scripts/check_publishable.py
 ### 2. 合规的家长版 → `PASS`
 
 ```bash
-$ python3 scripts/kpf_validate.py tests/fixtures/parent_pass_fce.md --kind 家长 --form 单篇 --level FCE
-PASS 家长/单篇/B2 First · tests/fixtures/parent_pass_fce.md · 0 error / 0 warning
+$ python3 scripts/kpf_validate.py tests/fixtures/parent_pass_fce.md --kind 家长 --form 单篇 --level FCE --no-transcript-check
+PASS 家长/单篇/B2 First · tests/fixtures/parent_pass_fce.md · 0 error / 0 warning（未做防编造检查：--no-transcript-check）
 $ echo $?
 0
 ```
 
+> 这条演示用的是公开夹具，仓库里没有配套的转写稿，所以显式加了 `--no-transcript-check`——
+> **不带这个开关、又不给 `--transcript`，家长版直接判 error**（只有同一份夹具在
+> `tests/fixtures/parent_fail_no_transcript.md` 里演示这条规则）。摘要行末尾那句
+> 「未做防编造检查」就是这个开关留下的痕迹：**"没检查"不能看起来像"检查通过"**。
+
 ### 3. 踩了红线的家长版 → `FAIL`，逐条打行号
 
 ```bash
-$ python3 scripts/kpf_validate.py tests/fixtures/parent_fail_metrics.md --kind 家长 --form 单篇 --level FCE
+$ python3 scripts/kpf_validate.py tests/fixtures/parent_fail_metrics.md --kind 家长 --form 单篇 --level FCE --no-transcript-check
 全文 [warning] 未写「六、本次未涉及的部分」段（家长版固定六段结构）
 全文 [warning] 未找到家长版的「存在的问题」段（固定六段结构）
 全文 [warning] 未找到家长版的「需要改进的方向」段（固定六段结构）
@@ -244,7 +254,7 @@ $ python3 scripts/kpf_validate.py tests/fixtures/parent_fail_metrics.md --kind �
 全文 [error] 缺少维度行「语法与词汇」（B2 First 必须有这几项：语法与词汇、话语组织、发音、互动交际）
 全文 [error] 缺少维度行「话语组织」（B2 First 必须有这几项：语法与词汇、话语组织、发音、互动交际）
 全文 [error] 缺少维度行「互动交际」（B2 First 必须有这几项：语法与词汇、话语组织、发音、互动交际）
-FAIL 家长/单篇/B2 First · tests/fixtures/parent_fail_metrics.md · 25 error / 3 warning
+FAIL 家长/单篇/B2 First · tests/fixtures/parent_fail_metrics.md · 25 error / 3 warning（未做防编造检查：--no-transcript-check）
 $ echo $?
 1
 ```
@@ -312,13 +322,19 @@ $ echo $?
 #    （可选）把成品归进自己的笔记库，见 references/05-output-and-vault.md 第二节
 
 # ⑥ 交付前必须跑，三份都跑（有 error 就重做报告，不是改校验器）
-python3 scripts/kpf_validate.py work/<日期>-<学生>/<学生>-家长.md --kind 家长 --form 单篇 --level FCE
-python3 scripts/kpf_validate.py work/<日期>-<学生>/<学生>-学生.md --kind 学生 --form 单篇 --level FCE
-python3 scripts/kpf_validate.py work/<日期>-<学生>/<学生>-作业记录.md --kind 作业记录 --form 单篇 --level FCE
-
-# ⑥′ 防编造：把转写稿一起给进去，报告里引用的学生原句必须找得到
+#    家长版与学生版**必须**给 --transcript —— 防编造是交付红线，不给就等于这项没跑过（详见 ⑥′）
 python3 scripts/kpf_validate.py work/<日期>-<学生>/<学生>-家长.md --kind 家长 --form 单篇 --level FCE \
     --transcript work/<日期>-<学生>/<文件名>--local.json
+python3 scripts/kpf_validate.py work/<日期>-<学生>/<学生>-学生.md --kind 学生 --form 单篇 --level FCE \
+    --transcript work/<日期>-<学生>/<文件名>--local.json
+python3 scripts/kpf_validate.py work/<日期>-<学生>/<学生>-作业记录.md --kind 作业记录 --form 单篇 --level FCE
+
+# ⑥′ 防编造：报告里引用的学生原句必须在转写稿里找得到（相似度 < 0.85 → error）。
+#     转写稿拿不出来时，必须加 --no-transcript-check 显式承认"本次未做这项检查"，
+#     否则家长版/学生版直接判 error —— 不让"忘了加参数"变成一条静默放行的红线。
+python3 scripts/kpf_validate.py work/<日期>-<学生>/<学生>-家长.md --kind 家长 --form 单篇 --level FCE \
+    --transcript work/<日期>-<学生>/<文件名>--local.json \
+    [--quote-threshold 0.85] [--quote-warn-threshold 0.92]
 ```
 
 几个 `--form` 与 `--draft` 的用法要点：

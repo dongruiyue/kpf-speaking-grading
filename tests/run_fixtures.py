@@ -18,6 +18,8 @@ warning 数**；任一不符就打印差异并 `sys.exit(1)`，全绿打一张�
 expected.json 的字段（每个用例一项，键是夹具文件名）：
   kind / form / level   直接透传给校验器的三个必填参数
   transcript            true = 同级目录下的 `_transcript.json`；也可写成字符串路径（相对夹具目录）
+  skip_fabrication      true = 追加 `--no-transcript-check`（给"这个夹具本来就没配转写稿、
+                        不测防编造"的用例；家长/学生没给 --transcript 时校验器会报 error）
   draft                 true = 追加 `--draft`（作业记录的草稿形态）
   exit / errors / warnings   期望值：0/1 退出码 + 校验器 stdout 摘要里的两个计数
 
@@ -96,6 +98,8 @@ def run_case(name: str, case: dict, fixtures_dir: Path) -> dict:
            "--kind", str(case["kind"]), "--form", str(case["form"]),
            "--level", str(case["level"])]
     cmd += transcript_arg(case, fixtures_dir)
+    if case.get("skip_fabrication"):
+        cmd.append("--no-transcript-check")
     if case.get("draft"):
         cmd.append("--draft")
     proc = subprocess.run(cmd, capture_output=True, text=True, cwd=str(ROOT))
