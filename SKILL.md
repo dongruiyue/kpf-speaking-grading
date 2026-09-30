@@ -203,7 +203,7 @@ python3 scripts/kpf_validate.py work/<日期>-<学生>/<学生>-家长.md --kind
 > **校验不通过必须重做报告，不得交付。** 回上一步改文本，不是改校验器；warnings 自己判断要不要动。
 > 校验通过后再按 `references/checklist.md` 逐项过一遍（每条红线都配了做法与自检命令）。
 > 规则本身有没有漂移，另跑 `python3 scripts/check_consistency.py`
-> （13 项断言 / 9 组：to_band 阈值、各级满分、A2 维度数、防编造阈值、家长版技术指标分级、维度中英对照、引用完整性、自我覆盖残留、节号连续）。
+> （14 项断言 / 10 组：to_band 阈值、各级满分、A2 维度数、防编造阈值、家长版技术指标分级、维度中英对照、引用完整性、自我覆盖残留、节号连续、四节档位表结构）。
 
 ## 三、评分标准
 
@@ -251,7 +251,7 @@ SKILL.md（本文件，先读）
 | 脚本 | 干什么 |
 |---|---|
 | `scripts/kpf_validate.py` | **输出合规校验器**（纯标准库）：报告是否合规由退出码回答，不是由模型说"我检查过了" |
-| `scripts/check_consistency.py` | **规则一致性校验器**：阈值 / 满分 / A2 维度数 / 防编造阈值 / 家长版技术指标分级 / 维度中英对照 / 引用完整性 / 节号连续（13 项断言），有一处漂移就非零退出 |
+| `scripts/check_consistency.py` | **规则一致性校验器**：阈值 / 满分 / A2 维度数 / 防编造阈值 / 家长版技术指标分级 / 维度中英对照 / 引用完整性 / 节号连续 / 四节档位表结构（14 项断言），有一处漂移就非零退出 |
 | `scripts/kpf_asr.py` | 转写（local / groq）与双引擎 crosscheck |
 | `scripts/kpf_analyze.py` | 切问答、算硬指标、出批改底稿 |
 | `scripts/kpf_pronounce.py` | 发音评测 provider 链（xfyun → local → manual） |

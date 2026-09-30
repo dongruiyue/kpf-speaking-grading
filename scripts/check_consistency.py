@@ -13,6 +13,11 @@
      锚点表（并顺带扫 checklist / 04-feedback 里写明的相似度，防止旧阈值残留在文档里）
   8. 家长版技术指标分级：`TECH_PARENT_HARD` / `TECH_PARENT_COND` ↔ §8.4「停顿/语速带量化才算指标」的描述
   9. 维度中英对照：`DIM_ALIASES` ↔ §8.4 对照表，且 A2 = 3 项在 `kpf_report.py` 三套模板里都有 A2 例外说明
+ 10. 档位表结构：`references/02-rubric.md` 四节（一～四）的 markdown 档位表必须是「每节 N 张 × 6 档」，
+     且 4 / 2 档写「介于相邻两档之间」、0 档写「低于 1 档」
+
+> ⚠️ 第 10 条只查**表格结构**，不查表格下方的说明文字——「表格对、说明错」那类问题（同一句里
+> 5 档取 B2、1 档取 B1 等）需要语义判断，机械断言做不到，只能靠人工复核（见 checklist.md）。
 
 用法：
   check_consistency.py            # 在本 skill 目录下跑，或从任意位置跑（按脚本位置定位根目录）
@@ -46,6 +51,13 @@ LEVEL_TOKENS = {"A2": ["A2", "KET", "Key"], "B1": ["B1", "PET", "Preliminary"],
                 "B2": ["B2", "FCE", "First"]}
 BANNED_SELF_OVERRIDE = ["取代此前", "效力高于", "优先于本文件", "已作废", "本节的效力"]
 CN_NUMERALS = "一二三四五六七八九十"
+# 02-rubric 四节的档位表张数（二、话语组织没有 A2 表，所以少一张）
+EXPECTED_SECTION_TABLES = {"一": 3, "二": 2, "三": 3, "四": 3}
+EXPECTED_BAND_ORDER = ["5", "4", "3", "2", "1", "0"]
+# 偶数档与 0 档的口径句：官方偶数档不写自己的描述词，0 档 = 低于 1 档
+BAND_MIX_PHRASES = {"4": "介于 3 档与 5 档之间",
+                    "2": "介于 1 档与 3 档之间",
+                    "0": "低于 1 档"}
 
 failures: list[str] = []
 checks: list[str] = []
@@ -543,6 +555,79 @@ def check_dim_names_bilingual() -> None:
            f"kpf_report.py 三套模板都有 A2 例外说明）")
 
 
+def check_rubric_table_structure() -> None:
+    """02-rubric 四节的档位表结构：每节张数、恰好 6 行档位、偶数档与 0 档口径。
+
+    ⚠️ 只查**表格结构**（张数、档位行、口径句），**不查**表格下方的说明文字——
+    「表格对、说明错」那类问题需要语义判断（同一句里 5 档取 B2、1 档取 B1 等），
+    机械断言做不到，只能靠人工复核（见 references/checklist.md）。
+    """
+    lines = read(RUBRIC).splitlines()
+    heads = [(i, line) for i, line in enumerate(lines, 1) if re.match(r"^##\s", line)]
+    spans: dict[str, tuple[int, int]] = {}
+    for idx, (lineno, raw) in enumerate(heads):
+        m = re.match(r"^##\s*([一二三四])、", raw)
+        if m:
+            end = heads[idx + 1][0] - 1 if idx + 1 < len(heads) else len(lines)
+            spans[m.group(1)] = (lineno, end)
+
+    problems: list[str] = []
+    counts: dict[str, int] = {}
+    starts: dict[str, list[int]] = {}
+    if sorted(spans) != sorted(EXPECTED_SECTION_TABLES):
+        problems.append(f"四节标题没找齐：找到 {sorted(spans)} ↔ 期望 {sorted(EXPECTED_SECTION_TABLES)}"
+                        " —— 节的编号或标题变了必须同步这条断言")
+
+    for sec in sorted(spans):
+        start, end = spans[sec]
+        blocks: list[list[int]] = []
+        cur: list[int] = []
+        for lineno in range(start, end + 1):
+            if lines[lineno - 1].lstrip().startswith("|"):
+                cur.append(lineno)
+            elif cur:
+                blocks.append(cur)
+                cur = []
+        if cur:
+            blocks.append(cur)
+        counts[sec] = len(blocks)
+        starts[sec] = [b[0] for b in blocks]
+
+        for block in blocks:
+            where = f"§{sec}（第 {block[0]}–{block[-1]} 行）"
+            bands: list[tuple[int, list[str]]] = []
+            for lineno in block:
+                cells = [c.strip().strip("*` ") for c in
+                         lines[lineno - 1].strip().strip("|").split("|")]
+                if cells and all(re.fullmatch(r":?-{2,}:?", c) for c in cells):
+                    continue  # 表头下面那条 |---|---| 分隔行
+                if cells and re.fullmatch(r"[0-5]", cells[0]):
+                    bands.append((lineno, cells))
+            markers = [cells[0] for _, cells in bands]
+            if markers != EXPECTED_BAND_ORDER:
+                problems.append(f"{where}：档位行应为 {EXPECTED_BAND_ORDER}（恰好 6 行），"
+                                f"实际 {markers}")
+                continue
+            for lineno, cells in bands:
+                phrase = BAND_MIX_PHRASES.get(cells[0])
+                if phrase and phrase not in " ".join(cells[1:]):
+                    problems.append(f"{where}：{cells[0]} 档（第 {lineno} 行）的锚点里没有「{phrase}」"
+                                    f" —— 实际写的是：{' '.join(cells[1:])[:60]}")
+
+    if counts != EXPECTED_SECTION_TABLES:
+        problems.append(f"每节档位表张数不符：实际 {counts} ↔ 期望 {EXPECTED_SECTION_TABLES}"
+                        f"（合计 {sum(counts.values())} 张，应为 "
+                        f"{sum(EXPECTED_SECTION_TABLES.values())} 张）"
+                        f"；实际表格起始行 {starts}"
+                        " —— 改维度或加级别时必须同步这条断言与 EXPECTED_SECTION_TABLES")
+
+    if problems:
+        bad("02-rubric 四节档位表结构不一致（张数 / 档位行 / 偶数档与 0 档口径）", problems)
+    else:
+        ok(f"02-rubric 档位表结构一致：{sum(EXPECTED_SECTION_TABLES.values())} 张表 × 6 档，"
+           f"偶数档=相邻两档混合、0 档=低于 1 档")
+
+
 def main() -> None:
     print(f"KPF 规则一致性校验 · {ROOT}")
     print("\n[1] to_band() 阈值")
@@ -563,6 +648,8 @@ def main() -> None:
     check_tech_tiers()
     print("\n[9] 维度中英对照与 A2 例外说明")
     check_dim_names_bilingual()
+    print("\n[10] 02-rubric 四节档位表结构（张数 / 6 档 / 偶数档与 0 档口径）")
+    check_rubric_table_structure()
 
     print()
     if failures:
