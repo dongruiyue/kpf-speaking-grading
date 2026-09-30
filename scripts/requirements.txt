@@ -3,3 +3,6 @@ requests>=2.31.0
 # 讯飞语音评测（kpf_xfyun.py / kpf_ise_stream.py）运行期用 websockets 的同步客户端；
 # faster-whisper / requests 都不带它，必须显式声明，否则新机器装完必 ImportError。
 websockets>=12
+# kpf_interact.py 直接 import av 解码音轨（numpy 由 ctranslate2 / onnxruntime 带进来，不必单列）；
+# faster-whisper 目前恰好依赖 av，但按上面的规矩：凡是脚本直接 import 的，自己声明。
+av>=11

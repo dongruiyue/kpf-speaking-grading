@@ -55,6 +55,11 @@ make check
     --student <姓名> --class <班级> --level FCE \
     --out work/<日期>-<学生>/<学生>-底稿.md
 
+# ②′ 可选：互动交际证据（**只有含对手方的录音才需要**，独白/自问自答跳过）
+#    量出话轮结构 / 沉默 / 考官提示次数 / 交接间隙；说话人分不开就只报沉默类指标并写明"未测"
+.venv/bin/python scripts/kpf_interact.py work/<日期>-<学生>/<文件名>--local.json \
+    --media <原始音视频> --out work/<日期>-<学生>/<学生>-互动证据.md
+
 # ③ 发音评分（auto = 讯飞 → 本机疑点 → 老师手填，任一成功即用）
 .venv/bin/python scripts/kpf_pronounce.py work/<日期>-<学生>/<文件名>--local.json \
     --provider auto --questions questions/FCE-P1-P102-holidays.txt \
