@@ -177,12 +177,6 @@ TPL_PARENT = """{student} {level}口语作业反馈
 四、需要改进的方向
 1. 〔对应问题 1 的可执行动作〕
 2. 〔对应问题 2 的可执行动作〕
-
-五、接下来重点 / 回家怎么配合
-〔一件事 + 具体量；说明不用发给老师〕
-
-六、本次未涉及的部分
-{parent_not_covered}
 """
 
 TPL_STUDENT = """{student} · 本次口语作业反馈
@@ -249,18 +243,15 @@ def main() -> None:
         interaction = "待补（本次是独自录音，测不到和别人的对话能力）"
         interaction_reason = "无对手方，本项无证据"
         interaction_note = "无对手方（单说话人），本项无证据。若要评需另排一次两两对话或含对手方的作业。"
-        parent_not_covered = "本次是独自录音，测不到和别人的对话能力，课堂上的对话环节我会另外观察。"
     elif args.form == "对话":
         interaction = "〔教师评分〕"
         interaction_reason = "含对手方，需教师判断"
         interaction_note = "含对手方，互动交际由教师评分（AI 不下结论）。"
-        parent_not_covered = "本次含对话环节，互动交际部分我在课堂上另外观察。"
     else:
         interaction = "〔待判断：按形态填 N/A/待补 或教师分数〕"
         interaction_reason = "〔按形态：独白或自问自答＝无对手方、本项无证据；含对手方＝教师评分〕"
         interaction_note = ("〔按形态填写：独白/自问自答写「无对手方，本项无证据」；"
                            "含同伴或考官的对话录音需教师评分。〕")
-        parent_not_covered = "〔按形态填写，如「本次是独自录音，测不到和别人的对话能力，课堂上的对话环节我会另外观察。」〕"
 
     ctx = dict(
         student=student, klass=klass, level=level, date=args.date,
@@ -273,7 +264,6 @@ def main() -> None:
         interaction=interaction,
         interaction_reason=interaction_reason,
         interaction_note=interaction_note,
-        parent_not_covered=parent_not_covered,
     )
 
     tpl = {"作业记录": TPL_RECORD, "家长": TPL_PARENT, "学生": TPL_STUDENT}[args.kind]

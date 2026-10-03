@@ -386,16 +386,14 @@ def check_parent_redlines(rep: Report) -> None:
 
 def check_parent_structure(rep: Report) -> None:
     if "本次评分" not in rep.text:
-        rep.error(0, "缺少「一、本次评分」段：家长版六段结构的第一段必须有（references/04-feedback.md 2.2）")
+        rep.error(0, "缺少「一、本次评分」段：家长版四段结构的第一段必须有（references/04-feedback.md 2.2）")
     flat = rep.flat()
     if DISCLAIMER_FLAT not in flat:
         rep.error(rep.lineno("本次评分"),
                   f"缺少免责句，必须一字不改：「{DISCLAIMER_RAW}」")
-    if "本次未涉及的部分" not in rep.text:
-        rep.warn(0, "未写「六、本次未涉及的部分」段（家长版固定六段结构）")
-    for section in ("做得好的地方", "存在的问题", "需要改进的方向", "回家"):
+    for section in ("做得好的地方", "存在的问题", "需要改进的方向"):
         if section not in rep.text:
-            rep.warn(0, f"未找到家长版的「{section}」段（固定六段结构）")
+            rep.warn(0, f"未找到家长版的「{section}」段（固定四段结构）")
 
 
 def check_total_score_forbidden(rep: Report, kind: str, form: str, level: str) -> None:

@@ -284,7 +284,7 @@ markdown 表格；`〔…〕`、`{…}`、`待填` 占位符残留（**作业记
 
 | 用例 | 结果 |
 |---|---|
-| 合规家长版（六段、逐行 X/5、免责句） | `PASS … 0 error / 0 warning`，exit 0 |
+| 合规家长版（四段、逐行 X/5、免责句） | `PASS … 0 error / 0 warning`，exit 0 |
 | 同上 + `--transcript P56-学生乙--local.json`（6 处真实引用） | `PASS … 0 error / 0 warning`，exit 0 |
 | 旧版成品真实样例复制后塞入"语速 122 词/分钟 + 93.6/100" | `FAIL … 25 error / 3 warning`，exit 1（逐条带行号） |
 | 合规底子复制后塞入同样三处破坏（含删免责句） | `FAIL … 5 error`，exit 1 |

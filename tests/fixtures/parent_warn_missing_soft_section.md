@@ -1,4 +1,4 @@
-<!-- 匿名夹具：家长版 · 只把结尾那一段整段删掉 → 校验器只给 warning，仍 exit 0 -->
+<!-- 匿名夹具：家长版 · 四段里故意整段少一段 → 校验器只给 warning，仍 exit 0 -->
 学生甲 FCE 口语作业反馈
 （2026-09-26 · 自拟练习 Speaking Part 1（体育与课外活动））
 
@@ -17,10 +17,6 @@
 三、存在的问题
 
 1. 时态：他说的 I play basketball since I am ten years old 应为 I have played basketball since I was ten years old。
-
-四、需要改进的方向
-
-1. 把"从过去持续到现在"的说法练熟，每次作业挑两题用上。
 
 五、接下来重点 / 回家怎么配合
 

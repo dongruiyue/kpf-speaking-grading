@@ -61,7 +61,7 @@
     "draft": false,
     "exit": 1,
     "errors": 25,
-    "warnings": 3
+    "warnings": 2
   },
   "parent_fail_missing_section.md": {
     "kind": "家长",
@@ -139,6 +139,17 @@
     "warnings": 0
   },
   "parent_pass_fce_en_dims.md": {
+    "kind": "家长",
+    "form": "单篇",
+    "level": "FCE",
+    "transcript": false,
+    "skip_fabrication": true,
+    "draft": false,
+    "exit": 0,
+    "errors": 0,
+    "warnings": 0
+  },
+  "parent_pass_fce_p125.md": {
     "kind": "家长",
     "form": "单篇",
     "level": "FCE",

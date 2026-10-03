@@ -154,7 +154,7 @@ echo "What kind of music do you listen to in your free time? Why?" > /tmp/one.tx
 
 ## 七、不想开任何服务，也能跑完整流程
 
-发音维度标「待补」，家长版第六段写明"发音本次未评"，其余流程照旧。家长版里那一栏由老师填。
+发音维度标「待补」，在家长版「一、本次评分」那一行的括号里写明"发音本次未评"，其余流程照旧。家长版里那一栏由老师填。
 这正是 `references/03-scoring-rules.md` 第六节要的效果：**AI 不许自己编发音分**。
 
 ---

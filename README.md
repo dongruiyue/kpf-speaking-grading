@@ -112,7 +112,7 @@ make doctor                                          # 离线自检：凭证齐�
 
 ```bash
 $ make check
-python3 -m py_compile scripts/check_consistency.py scripts/check_publishable.py scripts/kpf_analyze.py scripts/kpf_anonymize.py scripts/kpf_asr.py scripts/kpf_calibrate.py scripts/kpf_doctor.py scripts/kpf_ise_stream.py scripts/kpf_pronounce.py scripts/kpf_report.py scripts/kpf_validate.py scripts/kpf_xfyun.py tests/run_fixtures.py
+python3 -m py_compile scripts/check_consistency.py scripts/check_publishable.py scripts/kpf_analyze.py scripts/kpf_anonymize.py scripts/kpf_asr.py scripts/kpf_calibrate.py scripts/kpf_doctor.py scripts/kpf_interact.py scripts/kpf_ise_stream.py scripts/kpf_pronounce.py scripts/kpf_report.py scripts/kpf_validate.py scripts/kpf_xfyun.py tests/run_fixtures.py
 python3 scripts/check_consistency.py
 KPF 规则一致性校验 · <repo>
 
@@ -130,7 +130,7 @@ KPF 规则一致性校验 · <repo>
   ✅ kpf_report.py 三个报告模板都存在，核心维度行齐备
 
 [4] 引用完整性
-  ✅ 引用完整性：SKILL.md + references/*.md 里 129 处 scripts/references/questions 路径全部存在
+  ✅ 引用完整性：SKILL.md + references/*.md 里 134 处 scripts/references/questions 路径全部存在
 
 [5] 自我覆盖残留
   ✅ 无自我覆盖残留：没有「取代此前 / 效力高于 / 优先于本文件 / 已作废 / 本节的效力」
@@ -152,7 +152,7 @@ KPF 规则一致性校验 · <repo>
 
 一致性校验通过：14 项断言全部成立
 python3 tests/run_fixtures.py
-夹具回归 · 33 个用例 · 校验器 scripts/kpf_validate.py
+夹具回归 · 34 个用例 · 校验器 scripts/kpf_validate.py
 夹具目录 <repo>/tests/fixtures
 期望表   <repo>/tests/expected.json
 
@@ -164,7 +164,7 @@ parent_fail_duplicate_dim.md         家长/单篇/FCE           1      1       
 parent_fail_fabricated.md            家长/单篇/FCE           1      1        0  PASS
 parent_fail_ket_discourse.md         家长/单篇/KET           1      1        0  PASS
 parent_fail_ket_discourse_en.md      家长/单篇/KET           1      1        0  PASS
-parent_fail_metrics.md               家长/单篇/FCE           1     25        3  PASS
+parent_fail_metrics.md               家长/单篇/FCE           1     25        2  PASS
 parent_fail_missing_section.md       家长/单篇/FCE           1      1        1  PASS
 parent_fail_no_transcript.md         家长/单篇/FCE           1      1        0  PASS
 parent_fail_pause_quantified.md      家长/单篇/FCE           1      2        0  PASS
@@ -173,6 +173,7 @@ parent_fail_speed_quantified.md      家长/单篇/FCE           1      1       
 parent_fail_total_score.md           家长/单篇/FCE           1      1        0  PASS
 parent_pass_fce.md                   家长/单篇/FCE           0      0        0  PASS
 parent_pass_fce_en_dims.md           家长/单篇/FCE           0      0        0  PASS
+parent_pass_fce_p125.md              家长/单篇/FCE           0      0        0  PASS
 parent_pass_ket.md                   家长/单篇/KET           0      0        0  PASS
 parent_pass_mock_fce.md              家长/完整模拟/FCE       0      0        0  PASS
 parent_pass_total_exempt.md          家长/单篇/FCE           0      0        0  PASS
@@ -193,14 +194,14 @@ record_pass_ket.md                   作业记录/单篇/KET       0      0     
 student_pass.md                      学生/单篇/FCE           0      0        0  PASS
 ------------------------------------------------------------------------------------
 
-全绿：33/33 个用例与期望表一致（退出码 + error/warning 计数）
+全绿：34/34 个用例与期望表一致（退出码 + error/warning 计数）
 python3 scripts/check_publishable.py
 发布闸门 · <repo>
 黑名单 publishable-denylist.txt（10 条）· 命中就逐条列在下面
 
 提示：`.venv/` 没有被 git 跟踪（已确认）
 
-可发布：0 处命中（扫了 86 个会被提交的文本文件）
+可发布：0 处命中（扫了 87 个会被提交的文本文件）
 ```
 
 **退出码 0。** 全程离线、不需要任何 API key、秒级跑完——所以 CI 里也只跑这一条（`.github/workflows/ci.yml`），不用装 faster-whisper 那类重依赖。
@@ -225,9 +226,8 @@ $ echo $?
 
 ```bash
 $ python3 scripts/kpf_validate.py tests/fixtures/parent_fail_metrics.md --kind 家长 --form 单篇 --level FCE --no-transcript-check
-全文 [warning] 未写「六、本次未涉及的部分」段（家长版固定六段结构）
-全文 [warning] 未找到家长版的「存在的问题」段（固定六段结构）
-全文 [warning] 未找到家长版的「需要改进的方向」段（固定六段结构）
+全文 [warning] 未找到家长版的「存在的问题」段（固定四段结构）
+全文 [warning] 未找到家长版的「需要改进的方向」段（固定四段结构）
 校验未通过：tests/fixtures/parent_fail_metrics.md（家长/单篇/B2 First）
   L7 [error] 残留占位符「〔具体表扬，引原话或数字〕」：交付前必须填完
   L7 [error] 残留占位符「〔结构上的具体表扬〕」：交付前必须填完
@@ -237,7 +237,7 @@ $ python3 scripts/kpf_validate.py tests/fixtures/parent_fail_metrics.md --kind �
   L13 [error] 残留占位符「〔同上〕」：交付前必须填完
   L15 [error] 残留占位符「〔如需第三条，务必是前两条之外、且同样有证据的〕」：交付前必须填完
   L17 [error] 残留占位符「〔每天几分钟做什么，说明不用发给老师〕」：交付前必须填完
-  L19 [error] 残留占位符「〔一句话理由：写稿会让"按词往外蹦"的习惯更重〕」：交付前必须填完
+  L19 [error] 残留占位符「〔一句理由：写稿会让"按词往外蹦"的习惯更重〕」：交付前必须填完
   L21 [error] 残留占位符「〔可验证的短期目标〕」：交付前必须填完
   L5 [error] 家长版出现技术指标「词/分」：家长版只放官方口径的 X / 5 分项分
   L5 [error] 家长版出现技术指标「词/分钟」：家长版只放官方口径的 X / 5 分项分
@@ -249,12 +249,12 @@ $ python3 scripts/kpf_validate.py tests/fixtures/parent_fail_metrics.md --kind �
   L23 [error] 家长版出现技术指标「词/分钟」：家长版只放官方口径的 X / 5 分项分
   L23 [error] 家长版出现带量化的技术指标「语速」：家长版只放官方口径的 X / 5 分项分（把数字/次数删掉）
   L23 [error] 家长版出现引擎原始分「93.6/100」：只放官方口径的分项分 X / 5
-全文 [error] 缺少「一、本次评分」段：家长版六段结构的第一段必须有（references/04-feedback.md 2.2）
-全文 [error] 缺少免责句，必须一字不改：「这是单次录音的表现，不作为考试总分预估」
-全文 [error] 缺少维度行「语法与词汇」（B2 First 必须有这几项：语法与词汇、话语组织、发音、互动交际）
-全文 [error] 缺少维度行「话语组织」（B2 First 必须有这几项：语法与词汇、话语组织、发音、互动交际）
-全文 [error] 缺少维度行「互动交际」（B2 First 必须有这几项：语法与词汇、话语组织、发音、互动交际）
-FAIL 家长/单篇/B2 First · tests/fixtures/parent_fail_metrics.md · 25 error / 3 warning（未做防编造检查：--no-transcript-check）
+  全文 [error] 缺少「一、本次评分」段：家长版四段结构的第一段必须有（references/04-feedback.md 2.2）
+  全文 [error] 缺少免责句，必须一字不改：「这是单次录音的表现，不作为考试总分预估」
+  全文 [error] 缺少维度行「语法与词汇」（B2 First 必须有这几项：语法与词汇、话语组织、发音、互动交际）
+  全文 [error] 缺少维度行「话语组织」（B2 First 必须有这几项：语法与词汇、话语组织、发音、互动交际）
+  全文 [error] 缺少维度行「互动交际」（B2 First 必须有这几项：语法与词汇、话语组织、发音、互动交际）
+FAIL 家长/单篇/B2 First · tests/fixtures/parent_fail_metrics.md · 25 error / 2 warning（未做防编造检查：--no-transcript-check）
 $ echo $?
 1
 ```
@@ -366,7 +366,7 @@ python3 scripts/kpf_validate.py work/<日期>-<学生>/<学生>-家长.md --kind
 | 双引擎交叉验证 | ✅ 自动标出 `00:18.2` 为高置信疑点，与人工听音判断的位置一致 |
 | **讯飞 ISE 语音评测** | ✅ 5 句念题实测通过（含 overall / 发音 / 韵律 / **句末语调** / 语速与逐词逐音素得分），耗时 8.4 秒；顺带抓到"特殊疑问句念成升调"这种纯人工听音容易漏的问题 |
 | **两个讯飞引擎的差异** | ✅ 同一段录音：suntone 总分 79.6（映射 3 档）vs 流式版 61.3（映射 2 档）——**差 18.3 分、差两档**，所以只作主评分 + 质检分工，绝不混用 |
-| 合规校验器与一致性断言 | ✅ 33 个夹具 + 14 项断言，`make check` 全绿（就是上面第 1 条演示） |
+| 合规校验器与一致性断言 | ✅ 34 个夹具 + 14 项断言，`make check` 全绿（就是上面第 1 条演示） |
 
 ### 尚未验证（`references/06-verification.md` 第四节原样照搬；其中「真人校准」已做五轮盲判复测——三轮真盲、两轮污染，覆盖率仍不足）
 
