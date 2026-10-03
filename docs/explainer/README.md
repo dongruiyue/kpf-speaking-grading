@@ -64,9 +64,9 @@
 ```bash
 cd <repo>
 
-# ① 四道闸门一次跑完：语法编译 + 规则一致性 + 31 个夹具回归 + 发布闸门
+# ① 四道闸门一次跑完：语法编译 + 规则一致性 + 33 个夹具回归 + 发布闸门
 make check
-#   预期：31/31 个用例与期望表一致；14 项断言全部成立；发布闸门 0 处命中
+#   预期：33/33 个用例与期望表一致；14 项断言全部成立；发布闸门 0 处命中
 
 # ② 合规的家长版 → PASS；踩红线的家长版 → FAIL 并打行号
 python3 scripts/kpf_validate.py tests/fixtures/parent_pass_fce.md --kind 家长 --form 单篇 --level FCE

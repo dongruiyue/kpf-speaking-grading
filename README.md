@@ -200,7 +200,7 @@ python3 scripts/check_publishable.py
 
 提示：`.venv/` 没有被 git 跟踪（已确认）
 
-可发布：0 处命中（扫了 84 个文本文件）
+可发布：0 处命中（扫了 86 个会被提交的文本文件）
 ```
 
 **退出码 0。** 全程离线、不需要任何 API key、秒级跑完——所以 CI 里也只跑这一条（`.github/workflows/ci.yml`），不用装 faster-whisper 那类重依赖。
@@ -399,7 +399,7 @@ python3 scripts/kpf_validate.py work/<日期>-<学生>/<学生>-家长.md --kind
 ```bash
 python3 scripts/check_consistency.py     # 规则本身有没有漂移（14 项断言）
 python3 tests/run_fixtures.py            # 匿名夹具的退出码与 error/warning 计数
-python3 scripts/check_publishable.py     # 发布闸门：真实姓名 / 个人路径 / 凭证 / 音视频名
+python3 scripts/check_publishable.py     # 发布闸门：真实姓名 / 个人路径 / 凭证 / 音视频名（只扫会被提交的文件，work/ 不扫）
 ```
 
 这三条（再加上语法级的 `py_compile`，共四条）就是 `make check` 的四道闸门——各自的退出码非零即红，也是 `make check` 的退出码。另外两个工具负责"越用越准"：

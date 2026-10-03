@@ -98,15 +98,61 @@ def load_denylist(path: Path) -> list[str]:
     return words
 
 
+def gitignored_top_dirs(root: Path) -> set[str]:
+    """退路用：从 `.gitignore` 里取**顶层目录名**（`work/`、`calibration/` 这类）。
+
+    只认「不含斜杠、不含通配符」的行 —— 那种一眼就能看出是目录名的；不解释通配符语法，
+    宁可少跳过也不乱跳过（真正的依据是 git 自己给的清单，这条只在没有 git 时兜底）。
+    """
+    ignore = root / ".gitignore"
+    if not ignore.is_file():
+        return set()
+    names: set[str] = set()
+    for line in ignore.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or line.startswith("!"):
+            continue
+        name = line.rstrip("/")
+        if "/" not in name and not any(c in name for c in "*?["):
+            names.add(name)
+    return names
+
+
 def iter_text_files(root: Path, skip: set[Path]):
-    """全仓文本文件（跳过 SKIP_DIRS、黑名单自身、二进制）。返回 (文件列表, 跳过的二进制数)。"""
+    """**只扫"会被提交的文件"**，跳过 SKIP_DIRS / `.gitignore` 忽略的 / 黑名单自身 / 二进制。
+
+    返回 (文件列表, 跳过的二进制数, 取文件方式的说明)。
+
+    为什么不能无差别走文件树：这道闸门要拦的是"跟着仓库公开出去的东西"，而 `work/`
+    （批改工作目录）与 `calibration/`（私有校准目录）按 `.gitignore` **永远不会提交** ——
+    学生的真实姓名、音视频与转写就住在那里。旧实现无差别扫全树，于是**每次批改完作业，
+    闸门都会被那些"正确地待在 gitignore 里"的工作文件点红**，真命中被假警报淹掉
+    （2026-10-03 实测：一批真实姓名全在 `work/` 下，闸门报「不可发布：6 处命中」）。
+    """
+    git_list: list[str] | None = None
+    try:
+        proc = subprocess.run(["git", "ls-files", "-co", "--exclude-standard", "-z"],
+                              cwd=str(root), capture_output=True, text=True, check=True)
+        git_list = proc.stdout.split("\0")
+    except (OSError, subprocess.CalledProcessError):
+        pass
+
+    if git_list is None:
+        ignored = gitignored_top_dirs(root)
+        source = ("文件树（没有可用的 git → 退回遍历目录，"
+                  f"并跳过 .gitignore 的顶层目录：{'、'.join(sorted(ignored)) or '（无）'}）")
+        candidates = [p for p in sorted(root.rglob("*")) if p.is_file()
+                      and not any(part in SKIP_DIRS or part in ignored
+                                  for part in p.relative_to(root).parts[:-1])]
+    else:
+        source = "git 跟踪的文件 + 未被忽略的新文件（git ls-files -co --exclude-standard）"
+        candidates = [root / rel for rel in git_list if rel]
+
     files: list[Path] = []
     binary = 0
-    for path in sorted(root.rglob("*")):
-        if not path.is_file() or path in skip:
-            continue
+    for path in sorted(set(candidates)):
         rel = path.relative_to(root)
-        if any(part in SKIP_DIRS for part in rel.parts[:-1]):
+        if path in skip or any(part in SKIP_DIRS for part in rel.parts[:-1]):
             continue
         try:
             path.read_text(encoding="utf-8")
@@ -114,7 +160,7 @@ def iter_text_files(root: Path, skip: set[Path]):
             binary += 1
             continue
         files.append(path)
-    return files, binary
+    return files, binary, source
 
 
 def scan_file(path: Path, rel: str, denylist: list[str]) -> list[str]:
@@ -215,10 +261,10 @@ def main() -> None:
     denylist = load_denylist(denylist_path)
 
     skip = {denylist_path}
-    files, binary = iter_text_files(root, skip)
+    files, binary, source = iter_text_files(root, skip)
     if args.verbose:
-        print(f"扫了 {len(files)} 个文本文件（跳过 {binary} 个非 UTF-8 文件；"
-              f"忽略目录 {', '.join(sorted(SKIP_DIRS))}；黑名单文件本身不扫）")
+        print(f"扫了 {len(files)} 个文本文件（跳过 {binary} 个非 UTF-8 文件；{source}；"
+              f"黑名单文件本身不扫）")
 
     hits: list[str] = []
     for path in files:
@@ -239,7 +285,7 @@ def main() -> None:
         print(f"不可发布：{len(hits)} 处命中，逐条见上（exit 1）", file=sys.stderr)
         sys.exit(1)
     print()
-    print(f"可发布：0 处命中（扫了 {len(files)} 个文本文件）")
+    print(f"可发布：0 处命中（扫了 {len(files)} 个会被提交的文本文件）")
     sys.exit(0)
 
 

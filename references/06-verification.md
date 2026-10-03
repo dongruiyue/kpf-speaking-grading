@@ -259,12 +259,13 @@ cd ~/.agents/skills/kpf-speaking-grading
 `04-feedback.md`、`05-output-and-vault.md`、`kpf_report.py` 的模板），而且旧版成品第 4 行就带着
 "平均每题 18.8 个词…语速 117 词/分钟"这种违反家长版红线的句子。
 
-### 8.1 两个校验器（都只用 Python 标准库，离线、不联网、不用凭证、不读 `~/.kpf-speaking/config.json`）
+### 8.1 三个机检脚本（都只用 Python 标准库，离线、不联网、不用凭证、不读 `~/.kpf-speaking/config.json`）
 
 | 脚本 | 作用 | 判据 |
 |---|---|---|
 | `scripts/kpf_validate.py` | 单个报告文件是否合规 | **有 error → 退出码 1**；warnings 只打印；明细走 stderr（带行号），stdout 一行摘要 |
 | `scripts/check_consistency.py` | 规则本身有没有漂移（阈值 / 满分 / A2 维度数 / 防编造阈值 / 家长版技术指标分级 / 维度中英对照 / 引用完整性 / 节号连续 / 四节档位表结构） | 14 项断言（10 组），任一不成立 → 退出码 1 并打印两边取值 |
+| `scripts/check_publishable.py` | **发布闸门**：真实姓名 / 班号（私有黑名单）、个人绝对路径、凭证形态、音视频文件名、`.venv` 有没有被跟踪、私有黑名单有没有被误提交 | 命中任一条 → 退出码 1，逐条打 `文件:行号`。**只扫"会被提交的文件"**（`git ls-files -co --exclude-standard`）—— `work/`、`calibration/` 这些按 `.gitignore` 永不提交的目录**不扫**（学生的真实姓名正当地住在那里）；没有可用的 git 时退回遍历目录树，并跳过 `.gitignore` 里的顶层目录 |
 
 关键检查项（`--kind 家长`）：禁用词 13 个 + `AI`；技术指标**分两档**——无条件 error 的 8 个
 （`词/分`、`词／分`、`词每分`、`词/分钟`、`词／分钟`、`个词`、`字数`、`平均每题`）与「停顿 / 语速」这两个
