@@ -3,6 +3,10 @@
 # `make check` 是发布前必跑的那一条：py_compile + 规则一致性 + 脚本级回归 + 夹具回归 +
 # 发布闸门，五条里任意一条红就红。全程离线、不需要任何 API key、秒级跑完（夹具是静态文本，
 # 校验器只用标准库），所以 push 到 GitHub 上跑 CI 也不用装 faster-whisper 之类重依赖。
+#
+# 发布闸门跑两遍黑名单（私有 + 仓库内示例）：本地默认用私有名单，而 **CI 上没有私有名单、
+# 用的是示例** —— 只跑一份的话，"往文档里照抄示例词"这类错本地永远测不出来
+# （2026-10-04 实测：CI 红、本地绿）。两份都跑，本地就能复现 CI。
 
 PY ?= python3
 PY_FILES := $(wildcard scripts/*.py tests/*.py)
@@ -23,8 +27,9 @@ script-tests:  ## 脚本级回归：闸门拦音频 / 互动门槛 / 对齐不�
 fixtures:  ## 匿名夹具回归：退出码 + error/warning 计数对齐 tests/expected.json
 	$(PY) tests/run_fixtures.py
 
-publish-check:  ## 发布闸门：真实姓名/班号/个人路径/凭证/音视频名
+publish-check:  ## 发布闸门：真实姓名/班号/个人路径/凭证/音视频名（私有与示例两份黑名单都跑）
 	$(PY) scripts/check_publishable.py
+	$(PY) scripts/check_publishable.py --denylist scripts/publishable-denylist.example.txt
 
 doctor:  ## 环境与凭证自检（离线、不花额度）：发音分会从哪来、还差什么、下一步跑什么
 	$(PY) scripts/kpf_doctor.py
