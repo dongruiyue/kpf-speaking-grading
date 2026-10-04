@@ -1,21 +1,24 @@
 # KPF 口语批改 skill · 常用命令
 #
-# `make check` 是发布前必跑的那一条：py_compile + 规则一致性 + 夹具回归 + 发布闸门，
-# 四条里任意一条红就红。全程离线、不需要任何 API key、秒级跑完（夹具是静态文本，
+# `make check` 是发布前必跑的那一条：py_compile + 规则一致性 + 脚本级回归 + 夹具回归 +
+# 发布闸门，五条里任意一条红就红。全程离线、不需要任何 API key、秒级跑完（夹具是静态文本，
 # 校验器只用标准库），所以 push 到 GitHub 上跑 CI 也不用装 faster-whisper 之类重依赖。
 
 PY ?= python3
 PY_FILES := $(wildcard scripts/*.py tests/*.py)
 
-.PHONY: check py-compile consistency fixtures publish-check doctor setup clean
+.PHONY: check py-compile consistency script-tests fixtures publish-check doctor setup clean
 
-check: py-compile consistency fixtures publish-check  ## 发布前必跑（任一红就红）
+check: py-compile consistency script-tests fixtures publish-check  ## 发布前必跑（任一红就红）
 
 py-compile:  ## 全部 Python 文件能编译（语法级）
 	$(PY) -m py_compile $(PY_FILES)
 
 consistency:  ## 代码与 references 不漂移（分制/阈值/维度/引用路径）
 	$(PY) scripts/check_consistency.py
+
+script-tests:  ## 脚本级回归：闸门拦音频 / 互动门槛 / 对齐不吞词 / 转写 schema
+	$(PY) tests/test_scripts.py
 
 fixtures:  ## 匿名夹具回归：退出码 + error/warning 计数对齐 tests/expected.json
 	$(PY) tests/run_fixtures.py

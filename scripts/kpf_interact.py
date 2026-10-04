@@ -219,12 +219,28 @@ def load_transcript(path: Path) -> dict:
         raise InputError("转写 schema 不对：缺 words[]（需要 kpf_asr.py 产出的词级时间戳）")
     if not data["words"]:
         raise InputError("转写里一个词都没有（words[] 为空）")
-    for i, w in enumerate(data["words"][:1]):
+    # **逐个查，不能只看第一个**：旧实现写的是 `data["words"][:1]`，于是第 2 个词缺 `end`
+    # 时这里放行，后面在 build_turns 里抛 KeyError、退出码 1 —— 而本脚本的约定是
+    # "输入不合法 → 退出码 2"（外审 2026-10-04 复现）。坏 schema 必须在这一步拦住。
+    for i, w in enumerate(data["words"]):
         if not isinstance(w, dict) or not {"w", "start", "end"} <= set(w):
-            raise InputError("words[] 的元素必须含 w/start/end 三个字段")
+            raise InputError(f"words[{i}] 必须含 w/start/end 三个字段（实际："
+                             f"{sorted(w) if isinstance(w, dict) else type(w).__name__}）")
+        if not all(isinstance(w[k], (int, float)) and not isinstance(w[k], bool)
+                   for k in ("start", "end")):
+            raise InputError(f"words[{i}] 的 start/end 必须是数字（实际："
+                             f"start={w['start']!r}, end={w['end']!r}）")
     if not isinstance(data.get("segments"), list) or not data["segments"]:
         # segments 只用于话轮切分的第二个规则；缺了会让换人处切不开，属于口径问题，必须报错
         raise InputError("转写 schema 不对：缺 segments[]（话轮切分第二规则要用它的段边界）")
+    for i, s in enumerate(data["segments"]):
+        if not isinstance(s, dict) or not {"start", "end"} <= set(s):
+            raise InputError(f"segments[{i}] 必须含 start/end 两个字段（实际："
+                             f"{sorted(s) if isinstance(s, dict) else type(s).__name__}）")
+        if not all(isinstance(s[k], (int, float)) and not isinstance(s[k], bool)
+                   for k in ("start", "end")):
+            raise InputError(f"segments[{i}] 的 start/end 必须是数字（实际："
+                             f"start={s['start']!r}, end={s['end']!r}）")
     return data
 
 
@@ -602,8 +618,19 @@ def nearest_cluster(f0: float, clusters: list[dict]) -> int:
 def evaluate_gates(clusters: list[dict], anchors: list[dict], args) -> dict:
     """G1 聚类门槛 + G2 锚点门槛。任一硬失败 → 不许硬分。"""
     total = sum(c["n"] for c in clusters)
+    speakers = int(getattr(args, "speakers", 3))
+    need = max(1, speakers - 1)                    # 考生侧应切的簇数
     boundaries = []
     g1_notes = []
+    # **结构前置条件：簇本身不够就没有"间隙"可比。**
+    # 旧实现在只有 1 簇时下面那个 zip 一次都不走 → g1_notes 为空 → `g1_status = "pass"`，
+    # 于是"只切出一个人"也会被判成"声学上可分出两位考生"，考官提示次数还会被标成"已测"
+    # （外审 2026-10-04 用单簇输入复现）。要区分说话人，至少得有 2 簇才谈得上比较。
+    if len(clusters) < max(2, need):
+        g1_notes.append(
+            f"考生侧只切出 {len(clusters)} 簇（--speakers {speakers} → 需要 {need} 簇，"
+            f"而且要区分说话人至少得有两簇可比）→ 没有可比较的相邻簇，"
+            f"结构上不足以区分说话人")
     for a, b in zip(clusters, clusters[1:]):
         gap = b["center"] - a["center"]
         sep = gap / (a["sd"] + b["sd"]) if (a["sd"] + b["sd"]) > 0 else float("inf")

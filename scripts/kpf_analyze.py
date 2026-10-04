@@ -82,7 +82,7 @@ WINDOW_RATIO = 0.55  # 题目对齐的最低相似度
 
 
 def _match_question(tokens: list[dict], targets: list[str], start: int,
-                    slack: int = 3, strong: float = 0.9) -> tuple[int | None, int | None, float]:
+                    slack: int = 3) -> tuple[int | None, int | None, float]:
     """把标准题目对齐到转写里的一段，返回 (题干起点, 题干终点, 相似度)。
 
     五个必需的设计（每一个都被真实数据打回过一次）：
@@ -90,8 +90,14 @@ def _match_question(tokens: list[dict], targets: list[str], start: int,
        所以题干终点由"最佳匹配窗口的右端"决定，而不是去找 `?`；
     2. **窗口长度受限**（题目词数 ±slack）——否则起点可以前移、把答案吞进题干；
     3. **滑动窗口 + 相似度**——学生念题常改词（`Which` 念成 `We each`），逐字匹配会整段失配；
-    4. **提前收的阈值必须高（0.9）**——阈值放宽到 0.75 时，前面一个"勉强像"的位置会抢掉
-       后面"更像"的真位置（实测把答案段切少了 4 个词）。够像才提前收，否则取全局最佳；
+    4. **不提前收，改成"先比相似度、再比窗口长度离题目多近"**——旧实现遇到第一个
+       `ratio ≥ 0.9` 的窗口就 `break`，可是**多吞了相邻一个词的窗口也能拿到 0.909**：
+       真正等长的 1.0 窗口还没被看到，就先被这个 0.909 抢走，**上一题答案的尾词被算进题干、
+       从答题统计里消失**（外审 2026-10-04 用合成转写复现：`Why because I like music
+       What music do you like I like jazz` 里第二题被切成 `music What music do you like`）。
+       现在扫完所有窗口：先取相似度最高的；相似度相同，取**词数最接近题目**的
+       （等长窗口 `|len − qlen| = 0` 必胜）；仍未分胜负就取靠前、靠短的。扫描量是每道题
+       × 全部窗口，实测在毫秒级；
     5. **窗口下界只对短题干放宽**——原来窗口最少 3 个词（`j` 从 `i + 2` 起），短题干够不到
        等长窗口：`Why?`（1 词）拿 3 词窗口去比，相似度最高也只有 0.50，低于 WINDOW_RATIO，
        于是它永远判「未定位」，题干连同整题答案一起从底稿里消失。现在下界是
@@ -105,6 +111,7 @@ def _match_question(tokens: list[dict], targets: list[str], start: int,
     qlen = len(targets)
     min_words = min(3, qlen)                        # qlen ≥ 3 时恒为 3，与改动前一致
     j_from = min(2, max(1, qlen) - 1)               # qlen ≥ 3 时恒为 2，与改动前一致
+    best_key = (0.0, 0)                             # (相似度, −|窗口词数 − 题目词数|)
     best: tuple[int | None, int | None, float] = (None, None, 0.0)
     for i in range(start, max(start + 1, len(tokens) - 2)):
         for j in range(max(i, i + j_from), min(i + qlen + slack, len(tokens))):
@@ -112,10 +119,10 @@ def _match_question(tokens: list[dict], targets: list[str], start: int,
             if len(window) < min_words:
                 continue
             ratio = difflib.SequenceMatcher(a=targets, b=window).ratio()
-            if ratio > best[2]:
+            key = (ratio, -abs(len(window) - qlen))
+            if key > best_key:
+                best_key = key
                 best = (i, j, ratio)
-        if best[2] >= strong and best[0] == i:
-            break
     return best
 
 

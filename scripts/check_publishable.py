@@ -12,7 +12,9 @@
   3. 凭证形态               以 `gsk` 下划线开头且后接 ≥16 位密钥体的 Groq key、
                             `api_key` / `api_secret` 后接**像密钥的**非空值、40+ 位 hex、
                             PEM 私钥头
-  4. 音视频文件名            名字带 .m4a / .mp3 / .wav / .mp4 / .mov 的文件（音频不该进公开仓库）
+  4. 音视频文件             ① **候选文件自己的扩展名**是 .m4a / .mp3 / .wav / .mp4 / .mov
+                            （**对每一个会被提交的文件都查，包括读不出 UTF-8 的**）；
+                            ② 文本里写出了音视频文件名（`P179页自问自答。.m4a` 这种）
   5. `.venv` 是否被 git 跟踪  `git ls-files`；**没有 git 仓库时跳过这一项并说明，不算命中**
   6. 私有黑名单是否被误提交   仓库里不该有叫 `publishable-denylist.txt` 的文件——
                             它装的就是要拦的真实姓名/班号，提交出去等于没脱敏
@@ -118,10 +120,15 @@ def gitignored_top_dirs(root: Path) -> set[str]:
     return names
 
 
-def iter_text_files(root: Path, skip: set[Path]):
-    """**只扫"会被提交的文件"**，跳过 SKIP_DIRS / `.gitignore` 忽略的 / 黑名单自身 / 二进制。
+def iter_candidate_files(root: Path, skip: set[Path]):
+    """列出**会被提交的文件**，并分出其中能按 UTF-8 读的那些。
 
-    返回 (文件列表, 跳过的二进制数, 取文件方式的说明)。
+    返回 (全部候选, 不可读的候选, 取文件方式的说明)。
+
+    **候选 = 全部会被提交的文件，不只是能解码的那些**：第 4 项（音视频不许进仓库）与
+    第 1–3 项不同，它看的是**文件名**，所以必须对每一个候选都跑。旧实现把"读不出 UTF-8"
+    的文件当成二进制直接跳过，于是一个被跟踪的 `.wav` 从头到尾没被任何检查看过，闸门照样
+    报"可发布"（外审 2026-10-04 复现：临时仓库 `git add -f` 一个 .wav，exit 0）。
 
     为什么不能无差别走文件树：这道闸门要拦的是"跟着仓库公开出去的东西"，而 `work/`
     （批改工作目录）与 `calibration/`（私有校准目录）按 `.gitignore` **永远不会提交** ——
@@ -149,7 +156,7 @@ def iter_text_files(root: Path, skip: set[Path]):
         candidates = [root / rel for rel in git_list if rel]
 
     files: list[Path] = []
-    binary = 0
+    unreadable: list[Path] = []
     for path in sorted(set(candidates)):
         rel = path.relative_to(root)
         if path in skip or any(part in SKIP_DIRS for part in rel.parts[:-1]):
@@ -157,10 +164,23 @@ def iter_text_files(root: Path, skip: set[Path]):
         try:
             path.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
-            binary += 1
+            unreadable.append(path)
             continue
         files.append(path)
-    return files, binary, source
+    return files, unreadable, source
+
+
+def check_av_name(path: Path, rel: str) -> list[str]:
+    """第 4 项里**按文件名**判的那一半：候选文件自己的扩展名是音视频就算命中。
+
+    它不看内容能不能解码，所以对 `.wav` / `.m4a` / `.mp4` 这些必然二进制的东西同样有效
+    （`scan_file` 里那条 `AV_NAME_RE` 查的是"文本里提到了某个音视频文件名"，用途不同：
+    它拦的是"报告里写出 `P179页自问自答。.m4a` 这种原始文件名"）。
+    """
+    if path.suffix.lower().lstrip(".") in AV_EXTS:
+        return [f"{rel}: 0: 这个文件本身就是音频/视频（.{path.suffix.lower().lstrip('.')}）："
+                f"一律不进仓库（`.gitignore` 已挡，别再 `git add -f` 硬塞）"]
+    return []
 
 
 def scan_file(path: Path, rel: str, denylist: list[str]) -> list[str]:
@@ -261,14 +281,19 @@ def main() -> None:
     denylist = load_denylist(denylist_path)
 
     skip = {denylist_path}
-    files, binary, source = iter_text_files(root, skip)
+    files, unreadable, source = iter_candidate_files(root, skip)
     if args.verbose:
-        print(f"扫了 {len(files)} 个文本文件（跳过 {binary} 个非 UTF-8 文件；{source}；"
-              f"黑名单文件本身不扫）")
+        print(f"扫了 {len(files)} 个文本文件（另有 {len(unreadable)} 个读不出 UTF-8 的文件："
+              f"它们**只做了文件名检查**；{source}；黑名单文件本身不扫）")
 
     hits: list[str] = []
     for path in files:
-        hits.extend(scan_file(path, str(path.relative_to(root)), denylist))
+        rel = str(path.relative_to(root))
+        hits.extend(check_av_name(path, rel))
+        hits.extend(scan_file(path, rel, denylist))
+    for path in unreadable:
+        # 内容扫不了（二进制），但**文件名与扩展名照样要查**——否则一个 .wav 就是盲区
+        hits.extend(check_av_name(path, str(path.relative_to(root))))
     hits.extend(check_repo_denylist(root))
     venv_hits, venv_note = check_venv_tracked(root)
     hits.extend(venv_hits)
@@ -285,7 +310,10 @@ def main() -> None:
         print(f"不可发布：{len(hits)} 处命中，逐条见上（exit 1）", file=sys.stderr)
         sys.exit(1)
     print()
-    print(f"可发布：0 处命中（扫了 {len(files)} 个会被提交的文本文件）")
+    print(f"可发布：0 处命中（扫了 {len(files)} 个会被提交的文本文件"
+          + (f"，另有 {len(unreadable)} 个非 UTF-8 文件只查了文件名与扩展名"
+             if unreadable else "")
+          + "）")
     sys.exit(0)
 
 
