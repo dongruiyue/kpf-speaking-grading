@@ -33,7 +33,8 @@ if not (SCRIPTS / "kpf_analyze.py").is_file():
     sys.exit(2)
 sys.path.insert(0, str(SCRIPTS))
 
-from kpf_analyze import _match_question, norm      # noqa: E402
+from kpf_analyze import (AMBIG_GAP, _match_question, norm,  # noqa: E402
+                         render, split_by_questions)
 from kpf_interact import InputError, evaluate_gates, load_transcript  # noqa: E402
 
 FAILURES: list[str] = []
@@ -73,6 +74,20 @@ def tokens_of(sentence: str) -> list[dict]:
     words = sentence.split()
     return [{"w": w, "start": i * 0.5, "end": i * 0.5 + 0.4, "p": 1.0}
             for i, w in enumerate(words)]
+
+
+class _Stub:
+    """render() 只读这三个字段。"""
+
+    student = "学生甲"
+    klass = "FCE"
+    level = "FCE"
+
+
+def _payload(tokens: list[dict]) -> dict:
+    """render() 需要的最小 payload。"""
+    return {"meta": {"engine": "local", "model": "synth", "duration": 12.0, "file": "x.json"},
+            "words": tokens}
 
 
 def run_gate(root: Path, deny: Path) -> subprocess.CompletedProcess:
@@ -178,18 +193,19 @@ def case_interact_gate_structure() -> None:
 # --------------------------------------------------------------------------
 # 用例 3：题目对齐
 #   3a 不许把上一题答案的尾词算进题干（首尾纯插入要剪）
-#   3b 不许选中答案里对题目的复述（靠后但更相似）
+#   3b 题干在音频里有两处都像时，不许自动裁决：标「边界待确认」并扣住该题数字
+#   3c 外审的反例：全局最佳只有 ~0.9 时，门槛不许被"余量"压到 0.75 去选上一题答案里的句子
 # --------------------------------------------------------------------------
 
 def case_analyze_match_boundaries() -> None:
-    print("\n[3] 题目对齐：不吞上一题的尾词，也不选答案里的复述")
+    print("\n[3] 题目对齐：不吞上一题的尾词；两处都像时标待确认而不是猜一个")
 
     # 3a：多吞了相邻一个词的窗口（0.909 也过 0.9）不能胜出
     sentence = "Why because I like music What music do you like I like jazz"
     tokens = tokens_of(sentence)
     words = sentence.split()
     targets = [norm(w) for w in "What music do you like".split()]
-    found, q_end, ratio, alt = _match_question(tokens, targets, 1)
+    found, q_end, ratio, amb = _match_question(tokens, targets, 1)
     window = words[found:q_end + 1]
     check("3a 题干窗口从 What 起", window[:1] == ["What"],
           f"实际窗口 {window}（从 music 起就是把上一题的尾词吞了）")
@@ -198,27 +214,42 @@ def case_analyze_match_boundaries() -> None:
     check("3a 上一题答案保住尾词 music",
           words[1:found] == ["because", "I", "like", "music"], f"实际 {words[1:found]}")
     check("3a 相似度 1.0（剪掉纯插入后重算）", abs(ratio - 1.0) < 1e-9, f"实际 {ratio:.3f}")
+    check("3a 只有一处念题 → 不报歧义（别把正常对齐也标成待确认）", amb is None, f"实际 {amb}")
 
-    # 3b：开头把 usually 念成 normally（0.9），答案里完整复述（1.0）→ 必须取开头那处
+    # 3b：念题（0.857）与答案里的复述（1.0）两处都像 → 标待确认 + 扣住数字
     sentence2 = ("What do you normally do at weekends What do you usually do at weekends "
                  "I usually play football")
     tokens2 = tokens_of(sentence2)
-    words2 = sentence2.split()
-    targets2 = [norm(w) for w in "What do you usually do at weekends".split()]
-    found2, q_end2, ratio2, alt2 = _match_question(tokens2, targets2, 0)
-    check("3b 题干落在开头那处（不是答案里的复述）", found2 == 0,
-          f"实际起点 {found2}（0 才是念题处，{found2} 已落进答案）")
-    check("3b 题干取的是念题那处（含念错的 normally）",
-          words2[found2:q_end2 + 1] == ["What", "do", "you", "normally", "do", "at", "weekends"],
-          f"实际 {words2[found2:q_end2 + 1]}")
-    check("3b 题干之后还有内容（没把答案整段吞掉）", q_end2 + 1 < len(words2),
-          f"题干切到末尾：窗口 {words2[found2:q_end2 + 1]}")
-    check("3b 真正的回答仍在后面",
-          words2[-4:] == ["I", "usually", "play", "football"], f"实际尾部 {words2[-4:]}")
-    check("3b 报出更靠后的那条更相似窗口（歧义提示）", alt2 is not None,
-          "没有歧义提示，教师无从核对边界")
-    check("3b 提示里指的是靠后的位置", alt2 is not None and alt2[0] > found2,
-          f"实际 {alt2}")
+    q2 = "What do you usually do at weekends?"
+    found2, q_end2, _r2, amb2 = _match_question(tokens2, [norm(w) for w in q2.split()], 0)
+    check("3b 两处都像时返回另一处候选", amb2 is not None, "没有报出第二处候选")
+    check("3b 候选指的是另一个位置", amb2 is not None and amb2[0] != found2, f"实际 {amb2}")
+
+    spans2, warns2 = split_by_questions(tokens2, [q2])
+    check("3b 该题被标成边界待确认", bool(spans2[0][3]), f"实际 {spans2[0][3]!r}")
+    check("3b 警告里写明两处候选", any("两处候选" in w for w in warns2), f"实际 {warns2}")
+
+    md2 = render(_payload(tokens2), spans2, warns2, _Stub())
+    check("3b 底稿把该题的答词数换成「待确认」", "| Q1‡ | 待确认 |" in md2, "底稿仍在输出该题数字")
+    check("3b 合计里注明未计入", "未计入" in md2, "合计没有说明有题被排除掉")
+    check("3b 逐题原文写出原因", "边界待确认" in md2, "没写为什么待确认")
+
+    # 3c：外审 2026-10-04 的反例。全局最佳只有 0.909，另一处 0.783（差 0.126 < AMBIG_GAP）——
+    #     "全局最佳 − 0.15"那种余量会把门槛压到 0.759，于是选中上一题答案里的那句。
+    #     现在只选全局最相似的那处，并把另一处报出来标待确认。
+    sentence3 = ("About weekends What do you like to do in your free days in summer I think "
+                 "What do you normally do in your free time in summer I usually play football")
+    tokens3 = tokens_of(sentence3)
+    words3 = sentence3.split()
+    q3 = "What do you usually do in your free time in summer?"
+    found3, q_end3, ratio3, amb3 = _match_question(tokens3, [norm(w) for w in q3.split()], 0)
+    check("3c 选的是最相似的那处（不是上一题答案里的相似句）",
+          "normally" in words3[found3:q_end3 + 1],
+          f"实际选中 {' '.join(words3[found3:q_end3 + 1])}")
+    check("3c 另一处候选被报出来（于是会标待确认）", amb3 is not None, f"实际 {amb3}")
+    check("3c 前提自检：两处相差在 AMBIG_GAP 之内",
+          amb3 is not None and abs(ratio3 - amb3[1]) <= AMBIG_GAP,
+          f"构造漂了：{ratio3:.3f} vs {amb3!r}")
 
 
 # --------------------------------------------------------------------------

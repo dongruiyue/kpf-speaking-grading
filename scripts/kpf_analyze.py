@@ -79,7 +79,7 @@ def span_metrics(tokens: list[dict]) -> dict:
 
 
 WINDOW_RATIO = 0.55  # 题目对齐的最低相似度
-MARGIN = 0.15        # 题目对齐的"靠前优先"余量（见 _match_question docstring 第 4 条）
+AMBIG_GAP = 0.15     # 两处候选相差小于它就算"说不清"，标边界待确认（见 _match_question）
 
 
 def _trim_insertions(tokens: list[dict], targets: list[str], i: int, j: int,
@@ -111,7 +111,7 @@ def _trim_insertions(tokens: list[dict], targets: list[str], i: int, j: int,
 
 
 def _match_question(tokens: list[dict], targets: list[str], start: int,
-                    slack: int = 3, strong: float = 0.9,
+                    slack: int = 3,
                     ) -> tuple[int | None, int | None, float, tuple[int, float] | None]:
     """把标准题目对齐到转写里的一段，返回 (题干起点, 题干终点, 相似度, 歧义提示)。
 
@@ -120,30 +120,24 @@ def _match_question(tokens: list[dict], targets: list[str], start: int,
        所以题干终点由"最佳匹配窗口的右端"决定，而不是去找 `?`；
     2. **窗口长度受限**（题目词数 ±slack）——否则起点可以前移、把答案吞进题干；
     3. **滑动窗口 + 相似度**——学生念题常改词（`Which` 念成 `We each`），逐字匹配会整段失配；
-    4. **取"够像的第一处"的该处最佳窗口，而不是全局最高相似度**——念题在整段录音里只
-       发生一次，所以**靠前的那个候选**更像是它；全局择优不安全：学生可能在答案里把
-       题目复述一遍（满分 1.0），而那已经在他自己的回答里了。外审 2026-10-04 用合成
-       转写复现：开头把 `usually` 念成 `normally`、答案里完整复述，全局择优把题干切进了
-       答案，**第一题的答案段变成空**、而且不触发任何弱定位警告。
-       判定门槛取 `全局最佳 − MARGIN`（MARGIN = 0.15），而不是一个固定值：
-       - 念题完全正确 → 最佳就是它，直接胜出；
-       - 念题错一两个词（7 词题错 1 词 → 0.857，与满分差 0.143）仍在 0.15 之内 → 靠前的
-         那处念题胜出；
-       - 而"前面一个勉强像的位置抢掉后面更像的真位置"那个老坑（实测差 0.25、把答案段
-         切少了 4 个词）在 0.15 之外 → 不会被重新踩回来。
-       已知边界：念题错到 3 个词以上、差距超过 MARGIN 时，答案里的复述仍可能胜出 ——
-       这时靠第 6 条的歧义提示与底稿里打出来的题干原文人工核对。
-       全局最佳本身就没到 `strong`（0.9）时，不做"靠前优先"，直接取全局最佳：
-       那种录音整体对齐质量差，再往前挪只会把未定位的题变多；
-    5. **首尾的"纯插入"要剪掉**（见 `_trim_insertions`）——这一步是第 4 条的收口：
-       允许"靠前但略差"的窗口胜出之后，一个**多吞了相邻一个词**的窗口（0.909 也过
-       0.9）就会把上一题答案的尾词算进题干、从答题统计里消失（同一轮外审的合成转写：
-       `Why because I like music What music do you like I like jazz`）。剪掉首尾纯插入
-       之后两种情形都对：多吞一个词的窗口被剪回等长，答案里的复述则因为位置更靠后而
-       根本没被选中。剪完的相似度按剪后的窗口重算；
-    6. **歧义要报出来**——选中的不是全局最佳时，把那条更相似的位置一并返回，底稿里
-       提示教师人工核对（多半是答案里的复述）；
-    7. **窗口下界只对短题干放宽**——原来窗口最少 3 个词（`j` 从 `i + 2` 起），短题干够不到
+    4. **选窗取全局最相似的那处；前后若有"位置不同、相似度接近"的候选，就标待确认，
+       不自动裁决**——念题在整段录音里只发生一次，但音频里可能出现两处都像的位置：
+       上一题答案里有一句相似的话，或者学生在本题的答案里把题目复述一遍。做法：
+       - **只选全局最佳，不按余量降门槛往前找。** 外审 2026-10-04 给过一个反例：
+         全局最佳只有 0.9 时，"全局最佳 − 0.15"这种余量会把门槛压到 0.75，正好落回
+         "前面一个勉强像的位置抢掉后面真位置"那个老坑 —— 实测选中的是上一题答案里的
+         一句话（0.783），真正念题的那处（0.909）被跳过。
+       - 与选中窗口**不重叠**、相似度落在 `AMBIG_GAP`(0.15) 之内的候选存在时，把它的
+         位置一并返回；调用方据此把该题标成 `边界待确认` —— **这一题的精确答词数与语速
+         先不输出**（`split_by_questions` / `render` 负责落实），底稿里把两处候选都打出来，
+         由教师听音频定边界。这比"猜一个再小声警告"诚实（见 references/01-task-map.md 5.1）。
+    5. **首尾的"纯插入"要剪掉**（见 `_trim_insertions`）——窗口两端多出来的词多半是相邻
+       答案的尾巴串了进来（`diff_reading` 早就在展示层这么做了）。只剪 `insert`，不剪
+       `replace`：学生把念题的第一个词念错（`Which` 念成 `We each`）时那是替换不是插入，
+       必须留在题干里。剪完的相似度按剪后的窗口重算。
+       外审 2026-10-04 的合成转写（`Why because I like music What music do you like
+       I like jazz`）就是这一类：选中窗口只多吞了前一个词，剪掉之后边界才落对。
+    6. **窗口下界只对短题干放宽**——原来窗口最少 3 个词（`j` 从 `i + 2` 起），短题干够不到
        等长窗口：`Why?`（1 词）拿 3 词窗口去比，相似度最高也只有 0.50，低于 WINDOW_RATIO，
        于是它永远判「未定位」，题干连同整题答案一起从底稿里消失。现在下界是
        `i + min(2, max(1, qlen) - 1)`（1 词题从 i 起、2 词题从 i+1 起），窗口下限词数
@@ -176,21 +170,22 @@ def _match_question(tokens: list[dict], targets: list[str], start: int,
         if cur[2] > overall[2]:
             overall = cur
 
-    # 靠前优先的门槛：以全局最佳为基准留一个余量（见 docstring 第 4 条）。
-    # 全局最佳自己都没到 strong 时不做靠前优先 —— 那种录音整体对齐差，往前挪只会多出未定位。
-    threshold = overall[2] - MARGIN if overall[2] >= strong else None
-    first_ok = (next((c for c in best_at if c[2] >= threshold), None)
-                if threshold is not None else None)
-    chosen = first_ok or overall
+    chosen = overall
     if chosen[0] is None:
         return None, None, 0.0, None
 
     found, q_end, ratio = _trim_insertions(tokens, targets, chosen[0], chosen[1], min_words)
 
-    alt = None
-    if chosen is not overall and overall[2] > ratio + 1e-9:
-        alt = (overall[0], overall[2])
-    return found, q_end, ratio, alt
+    ambiguous = None
+    for c in best_at:
+        if c[0] == chosen[0]:
+            continue
+        overlaps = not (c[1] < chosen[0] or c[0] > chosen[1])
+        if overlaps or c[2] < overall[2] - AMBIG_GAP:
+            continue
+        ambiguous = (c[0], c[2])        # 取最早的那条（best_at 按 i 升序）
+        break
+    return found, q_end, ratio, ambiguous
 
 
 def _infer_unlocated(tokens: list[dict], marks: list, idx: int, owner: dict[int, int],
@@ -246,33 +241,43 @@ def _infer_unlocated(tokens: list[dict], marks: list, idx: int, owner: dict[int,
 
 
 def split_by_questions(tokens: list[dict], questions: list[str]) -> tuple[list[dict], list[str]]:
-    """按标准题目定位每题的边界。返回 [(问题span, 答案span, 念题差异)] 与对齐警告。
+    """按标准题目定位每题的边界。返回 [(问题span, 答案span, 念题差异, 待确认说明)] 与对齐警告。
 
     未定位的题目答案 span 见 `_infer_unlocated`：要么是「相邻已定位题目之间的推断区间」
     （第三项说明里写明），要么为空（说明里写明为什么空）——旧版这里是 `(None, None, "未定位")`，
     整题（题干 + 答案）无声消失，且警告还宣称"已改由相邻题目推断"，与代码实际行为不符。
+
+    第四项 `pending`：非空 = 这题（或它的答案末边界）**说不清**，`render` 会把该题的精确
+    答词数与语速换成「待确认」。两种来源：
+      ① 题干在音频里有两处位置不同、相似度接近的候选（见 `_match_question` 第 4 条）；
+      ② 下一题的题干边界待确认 → 本题答案的末边界跟着不确定。
     """
     qtok = [[norm(w) for w in q.split() if norm(w)] for q in questions]
     warnings: list[str] = []
     marks: list[tuple[int, int, float] | None] = []
     ratios: list[float] = []   # 每题的最佳对齐度（未定位的也要留着，警告里要报）
+    pending: dict[int, str] = {}
     cursor = 0
 
     for idx, (question, targets) in enumerate(zip(questions, qtok)):
-        found, q_end, ratio, alt = _match_question(tokens, targets, cursor)
+        found, q_end, ratio, ambiguous = _match_question(tokens, targets, cursor)
         ratios.append(ratio)
         if found is None or ratio < WINDOW_RATIO:
             marks.append(None)
             continue
         marks.append((found, q_end, ratio))
         cursor = q_end + 1
-        if alt is not None:
-            # 选中的不是全局最相似的那条窗口 —— 多半是学生在答案里复述了题目。
-            # 按"念题只发生一次"取靠前的一条，但必须报出来让教师核对边界。
+        if ambiguous is not None:
+            # 两处都像。**不替教师裁决**：本题答词数/语速先不输出，等听音频定边界。
+            alt_i, alt_ratio = ambiguous
+            pending[idx] = (f"题干在音频里有**两处**位置不同、相似度接近的候选"
+                            f"（已选的这处 {ratio:.0%}、另一处在转写第 {alt_i + 1} 词起 "
+                            f"{alt_ratio:.0%}），本题的精确答词数与语速**先不输出**")
             warnings.append(
-                f"第 {idx + 1} 题更靠后还有一条更相似的窗口（转写第 {alt[0] + 1} 词起、"
-                f"相似度 {alt[1]:.0%}），已按靠前的那条切分（念题只发生一次，"
-                f"靠后的多半是答案里的复述）——请人工核对边界：{question[:40]}…")
+                f"第 {idx + 1} 题边界待确认：题干在音频里有两处候选（相似度 {ratio:.0%} 与 "
+                f"{alt_ratio:.0%}、位置分别从第 {found + 1} 词与第 {alt_i + 1} 词起）。"
+                f"已按全局最相似的那处切分，但**本题的答词数与语速不计入统计**，"
+                f"请听音频确认边界：{question[:40]}…")
         if len(targets) < 3:
             # 放开了短题目的窗口下限，代价是「1–2 词的题目」本身就属于弱证据：答案里出现
             # 同形词（`and you` / `why`）也能拿到 100% 对齐。这是放宽窗口后新引入的误判面，
@@ -300,7 +305,7 @@ def split_by_questions(tokens: list[dict], questions: list[str]) -> tuple[list[d
         mark = marks[idx]
         if mark is None:
             aspan, note, warn = _infer_unlocated(tokens, marks, idx, owner, question, ratios[idx])
-            spans.append((None, aspan, note))
+            spans.append((None, aspan, note, ""))
             warnings.append(warn)
             continue
         found, q_end, ratio = mark
@@ -312,7 +317,19 @@ def split_by_questions(tokens: list[dict], questions: list[str]) -> tuple[list[d
                 warnings.append(f"第 {idx + 1} 题之后有题目未定位，该题答案末边界不可靠，请人工核对。")
         spoken = [tokens[j]["w"] for j in range(found, q_end + 1)]
         diff = f"{diff_reading(question, spoken)}（题目对齐度 {ratio:.0%}）"
-        spans.append((tokens[found:q_end + 1], tokens[q_end + 1:nxt], diff))
+        spans.append((tokens[found:q_end + 1], tokens[q_end + 1:nxt], diff, pending.get(idx, "")))
+
+    # 下一题的题干边界待确认 → 本题答案的末边界也跟着不确定，同样不输出精确数字
+    for idx in range(len(spans) - 1):
+        if not pending.get(idx + 1) or pending.get(idx):
+            continue
+        if marks[idx] is None or spans[idx][1] is None:
+            continue
+        pending[idx] = (f"下一题（第 {idx + 2} 题）的题干边界待确认，"
+                        f"本题答案的末边界随之不确定，精确答词数与语速**先不输出**")
+        spans[idx] = (spans[idx][0], spans[idx][1], spans[idx][2], pending[idx])
+        warnings.append(f"第 {idx + 1} 题的答案末边界取决于第 {idx + 2} 题的题干起点，"
+                        f"而后者待确认 → 本题的答词数与语速也不计入统计。")
     return spans, warnings
 
 
@@ -388,7 +405,7 @@ def split_auto(tokens: list[dict]) -> tuple[list[dict], list[str]]:
             q_end = a_start
             a_start += 1
         a_end = (starts[k + 1] - 1) if k + 1 < len(starts) else len(tokens) - 1
-        spans.append((tokens[s:q_end + 1], tokens[a_start:a_end + 1], ""))
+        spans.append((tokens[s:q_end + 1], tokens[a_start:a_end + 1], "", ""))
     return spans, ["自动切分结果，请人工核对每条边界是否落在题目/答案交界处。"]
 
 
@@ -409,9 +426,12 @@ def render(payload: dict, spans: list, warnings: list[str], args) -> str:
     meta = payload["meta"]
     all_tokens = payload["words"]
     overall = span_metrics(all_tokens)
-    answers = [s[1] for s in spans if s[1]]
+    # 边界待确认的题**不进任何自动统计**：宁可少一个数，也不给一个错的数（见 split_by_questions）
+    answers = [s[1] for s in spans if s[1] and not s[3]]
+    n_pending = len([s for s in spans if s[3]])
     total_ans_words = sum(len(a) for a in answers)
     total_ans_dur = sum(span_metrics(a)["dur"] for a in answers) if answers else 0
+    tail = f"（另有 {n_pending} 题边界待确认，未计入）" if n_pending else ""
 
     L = []
     L.append("---")
@@ -446,16 +466,24 @@ def render(payload: dict, spans: list, warnings: list[str], args) -> str:
     # 于是"下面有三行 Q、这里写题目数 2"看上去像 bug（2026-09-30 定）。两个数都是定位口径，
     # 与"答题词数合计"不同——后者含开场段的推断区间。
     L.append(f"| 未定位题数 | {len([s for s in spans if s[0] is None])} |")
-    L.append(f"| 答题词数合计 | {total_ans_words} |")
-    L.append(f"| 答题语速合计 | {round(total_ans_words / total_ans_dur * 60) if total_ans_dur else 0} 词/分 |")
-    L.append(f"| 每题平均词数 | {round(total_ans_words / len(answers), 1) if answers else 0} |")
+    # 待确认题数单独一行：它和"未定位"不是一回事 —— 题干定位上了，但边界说不清，所以
+    # 那一题的精确数字不输出、也不进下面的合计（宁可少一个数，也不给一个错的数）
+    L.append(f"| 边界待确认题数 | {n_pending} |")
+    L.append(f"| 答题词数合计 | {total_ans_words}{tail} |")
+    L.append(f"| 答题语速合计 | {round(total_ans_words / total_ans_dur * 60) if total_ans_dur else 0} 词/分{tail} |")
+    L.append(f"| 每题平均词数 | {round(total_ans_words / len(answers), 1) if answers else 0}{tail} |")
     L.append("")
 
     L.append("## 二、逐题硬指标")
     L.append("")
     L.append("| 题 | 答词数 | 答段秒 | 语速(词/分) | 停顿≥0.4s | 其中≥1s | 最长停顿 | 填充词 |")
     L.append("|---|---|---|---|---|---|---|---|")
-    for i, (qspan, aspan, _d) in enumerate(spans, 1):
+    for i, (qspan, aspan, _d, note) in enumerate(spans, 1):
+        if note:
+            # 边界待确认：这一题的精确答词数/语速/停顿**一个都不输出**，只标明原因。
+            # 光是"给个数再小声警告"不算诚实 —— 数字会被引用，警告不会。
+            L.append(f"| Q{i}‡ | 待确认 | — | 待确认 | — | — | — | 边界待确认 |")
+            continue
         if not aspan:
             if qspan is None:
                 # 未定位的题也必须占一行：整行消失会让教师以为"这题不存在"（旧版就是这么静默丢的）
@@ -471,6 +499,10 @@ def render(payload: dict, spans: list, warnings: list[str], args) -> str:
     if any(s[0] is None and s[1] for s in spans):
         L.append("> † 该题未定位：答段是相邻已定位题目之间的**推断区间**，可能含未识别的题干词，"
                  "词数/语速只能当粗略参考，不计入任何自动判分。")
+    if n_pending:
+        L.append("> ‡ 该题**边界待确认**：题干在音频里有位置不同、相似度接近的候选，"
+                 "或它的答案末边界取决于下一题的题干起点。**这一题的精确答词数与语速不予输出**、"
+                 "也不计入上面的合计，请听音频定边界后再补（references/01-task-map.md 5.1）。")
     L.append("")
 
     L.append("## 三、逐题原文（问题 / 回答）")
@@ -478,7 +510,7 @@ def render(payload: dict, spans: list, warnings: list[str], args) -> str:
     L.append("> 念题差异只作线索：对齐窗口可能把相邻答案的尾部算进题干，逐题词数有 ±2–4 词的边界误差，"
              "**不得据此单独下结论**（见 references/01-task-map.md 第 5.1 节）。")
     L.append("")
-    for i, (qspan, aspan, diff) in enumerate(spans, 1):
+    for i, (qspan, aspan, diff, note) in enumerate(spans, 1):
         L.append(f"### Q{i}")
         L.append("")
         if qspan:
@@ -488,7 +520,11 @@ def render(payload: dict, spans: list, warnings: list[str], args) -> str:
         elif diff:
             # 未定位：第三项装的是「这段答案是推断的还是没推出来」的说明，逐题写一行，绝不静默
             L.append(f"- **未定位**：{diff}")
-        if aspan:
+        if note:
+            L.append(f"- **边界待确认**：{note}")
+            L.append(f"- **这一题的答段（供人工核对，数字不予输出）**："
+                     f"{' '.join(t['w'] for t in aspan) if aspan else '（空）'}")
+        elif aspan:
             m = span_metrics(aspan)
             L.append(f"- **答**（{m['n']} 词 / {m['dur']} 秒 / {m['wpm']} 词每分 / "
                      f"停顿 {len(m['pauses'])} 次，最长 {m['max_pause']:.2f}s）："
