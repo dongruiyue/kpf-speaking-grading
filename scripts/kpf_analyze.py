@@ -79,26 +79,71 @@ def span_metrics(tokens: list[dict]) -> dict:
 
 
 WINDOW_RATIO = 0.55  # 题目对齐的最低相似度
+MARGIN = 0.15        # 题目对齐的"靠前优先"余量（见 _match_question docstring 第 4 条）
+
+
+def _trim_insertions(tokens: list[dict], targets: list[str], i: int, j: int,
+                     min_keep: int = 1) -> tuple[int, int, float]:
+    """剪掉窗口首尾的**纯插入** token，返回剪后的 (起点, 终点, 相似度)。
+
+    只剪 `insert`、不剪 `replace`：学生把念题开头的词念错（`Which` 念成 `We each`）时
+    那是替换不是插入，必须留在题干里；而首尾多出来的"纯插入"多半是相邻答案的尾巴
+    串进了窗口（`diff_reading` 早就在展示层做同一件事，这里是对**边界**做）。
+    剪不动（剪完不足 `min_keep` 词、或本来就没多）时原样返回。
+    """
+    pairs = [(k, norm(tokens[k]["w"])) for k in range(i, j + 1) if norm(tokens[k]["w"])]
+    if not pairs:
+        return i, j, 0.0
+    win = [w for _, w in pairs]
+    sm = difflib.SequenceMatcher(a=targets, b=win)
+    ratio = sm.ratio()
+    ops = sm.get_opcodes()
+    lo, hi = 0, len(win)
+    if ops and ops[0][0] == "insert":
+        lo = ops[0][4]
+    if ops and ops[-1][0] == "insert":
+        hi = ops[-1][3]
+    if hi - lo < max(1, min_keep) or (lo == 0 and hi == len(win)):
+        return i, j, ratio
+    trimmed = win[lo:hi]
+    return (pairs[lo][0], pairs[hi - 1][0],
+            difflib.SequenceMatcher(a=targets, b=trimmed).ratio())
 
 
 def _match_question(tokens: list[dict], targets: list[str], start: int,
-                    slack: int = 3) -> tuple[int | None, int | None, float]:
-    """把标准题目对齐到转写里的一段，返回 (题干起点, 题干终点, 相似度)。
+                    slack: int = 3, strong: float = 0.9,
+                    ) -> tuple[int | None, int | None, float, tuple[int, float] | None]:
+    """把标准题目对齐到转写里的一段，返回 (题干起点, 题干终点, 相似度, 歧义提示)。
 
-    五个必需的设计（每一个都被真实数据打回过一次）：
+    七条设计（前五条每一个都被真实数据打回过一次）：
     1. **不依赖 ASR 的标点**——Whisper 常不给念出来的问题加问号（实测 5 题里 3 题没有），
        所以题干终点由"最佳匹配窗口的右端"决定，而不是去找 `?`；
     2. **窗口长度受限**（题目词数 ±slack）——否则起点可以前移、把答案吞进题干；
     3. **滑动窗口 + 相似度**——学生念题常改词（`Which` 念成 `We each`），逐字匹配会整段失配；
-    4. **不提前收，改成"先比相似度、再比窗口长度离题目多近"**——旧实现遇到第一个
-       `ratio ≥ 0.9` 的窗口就 `break`，可是**多吞了相邻一个词的窗口也能拿到 0.909**：
-       真正等长的 1.0 窗口还没被看到，就先被这个 0.909 抢走，**上一题答案的尾词被算进题干、
-       从答题统计里消失**（外审 2026-10-04 用合成转写复现：`Why because I like music
-       What music do you like I like jazz` 里第二题被切成 `music What music do you like`）。
-       现在扫完所有窗口：先取相似度最高的；相似度相同，取**词数最接近题目**的
-       （等长窗口 `|len − qlen| = 0` 必胜）；仍未分胜负就取靠前、靠短的。扫描量是每道题
-       × 全部窗口，实测在毫秒级；
-    5. **窗口下界只对短题干放宽**——原来窗口最少 3 个词（`j` 从 `i + 2` 起），短题干够不到
+    4. **取"够像的第一处"的该处最佳窗口，而不是全局最高相似度**——念题在整段录音里只
+       发生一次，所以**靠前的那个候选**更像是它；全局择优不安全：学生可能在答案里把
+       题目复述一遍（满分 1.0），而那已经在他自己的回答里了。外审 2026-10-04 用合成
+       转写复现：开头把 `usually` 念成 `normally`、答案里完整复述，全局择优把题干切进了
+       答案，**第一题的答案段变成空**、而且不触发任何弱定位警告。
+       判定门槛取 `全局最佳 − MARGIN`（MARGIN = 0.15），而不是一个固定值：
+       - 念题完全正确 → 最佳就是它，直接胜出；
+       - 念题错一两个词（7 词题错 1 词 → 0.857，与满分差 0.143）仍在 0.15 之内 → 靠前的
+         那处念题胜出；
+       - 而"前面一个勉强像的位置抢掉后面更像的真位置"那个老坑（实测差 0.25、把答案段
+         切少了 4 个词）在 0.15 之外 → 不会被重新踩回来。
+       已知边界：念题错到 3 个词以上、差距超过 MARGIN 时，答案里的复述仍可能胜出 ——
+       这时靠第 6 条的歧义提示与底稿里打出来的题干原文人工核对。
+       全局最佳本身就没到 `strong`（0.9）时，不做"靠前优先"，直接取全局最佳：
+       那种录音整体对齐质量差，再往前挪只会把未定位的题变多；
+    5. **首尾的"纯插入"要剪掉**（见 `_trim_insertions`）——这一步是第 4 条的收口：
+       允许"靠前但略差"的窗口胜出之后，一个**多吞了相邻一个词**的窗口（0.909 也过
+       0.9）就会把上一题答案的尾词算进题干、从答题统计里消失（同一轮外审的合成转写：
+       `Why because I like music What music do you like I like jazz`）。剪掉首尾纯插入
+       之后两种情形都对：多吞一个词的窗口被剪回等长，答案里的复述则因为位置更靠后而
+       根本没被选中。剪完的相似度按剪后的窗口重算；
+    6. **歧义要报出来**——选中的不是全局最佳时，把那条更相似的位置一并返回，底稿里
+       提示教师人工核对（多半是答案里的复述）；
+    7. **窗口下界只对短题干放宽**——原来窗口最少 3 个词（`j` 从 `i + 2` 起），短题干够不到
        等长窗口：`Why?`（1 词）拿 3 词窗口去比，相似度最高也只有 0.50，低于 WINDOW_RATIO，
        于是它永远判「未定位」，题干连同整题答案一起从底稿里消失。现在下界是
        `i + min(2, max(1, qlen) - 1)`（1 词题从 i 起、2 词题从 i+1 起），窗口下限词数
@@ -111,19 +156,41 @@ def _match_question(tokens: list[dict], targets: list[str], start: int,
     qlen = len(targets)
     min_words = min(3, qlen)                        # qlen ≥ 3 时恒为 3，与改动前一致
     j_from = min(2, max(1, qlen) - 1)               # qlen ≥ 3 时恒为 2，与改动前一致
-    best_key = (0.0, 0)                             # (相似度, −|窗口词数 − 题目词数|)
-    best: tuple[int | None, int | None, float] = (None, None, 0.0)
+    best_at: list[tuple[int, int, float]] = []      # 每个 i 的最佳窗口（i 升序）
+    overall: tuple[int | None, int | None, float] = (None, None, 0.0)
     for i in range(start, max(start + 1, len(tokens) - 2)):
+        cur: tuple[int | None, int | None, float] = (None, None, 0.0)
+        cur_key = (0.0, 0)                          # (相似度, −|窗口词数 − 题目词数|)
         for j in range(max(i, i + j_from), min(i + qlen + slack, len(tokens))):
             window = [norm(t["w"]) for t in tokens[i:j + 1] if norm(t["w"])]
             if len(window) < min_words:
                 continue
             ratio = difflib.SequenceMatcher(a=targets, b=window).ratio()
             key = (ratio, -abs(len(window) - qlen))
-            if key > best_key:
-                best_key = key
-                best = (i, j, ratio)
-    return best
+            if key > cur_key:
+                cur_key = key
+                cur = (i, j, ratio)
+        if cur[0] is None:
+            continue
+        best_at.append(cur)
+        if cur[2] > overall[2]:
+            overall = cur
+
+    # 靠前优先的门槛：以全局最佳为基准留一个余量（见 docstring 第 4 条）。
+    # 全局最佳自己都没到 strong 时不做靠前优先 —— 那种录音整体对齐差，往前挪只会多出未定位。
+    threshold = overall[2] - MARGIN if overall[2] >= strong else None
+    first_ok = (next((c for c in best_at if c[2] >= threshold), None)
+                if threshold is not None else None)
+    chosen = first_ok or overall
+    if chosen[0] is None:
+        return None, None, 0.0, None
+
+    found, q_end, ratio = _trim_insertions(tokens, targets, chosen[0], chosen[1], min_words)
+
+    alt = None
+    if chosen is not overall and overall[2] > ratio + 1e-9:
+        alt = (overall[0], overall[2])
+    return found, q_end, ratio, alt
 
 
 def _infer_unlocated(tokens: list[dict], marks: list, idx: int, owner: dict[int, int],
@@ -192,13 +259,20 @@ def split_by_questions(tokens: list[dict], questions: list[str]) -> tuple[list[d
     cursor = 0
 
     for idx, (question, targets) in enumerate(zip(questions, qtok)):
-        found, q_end, ratio = _match_question(tokens, targets, cursor)
+        found, q_end, ratio, alt = _match_question(tokens, targets, cursor)
         ratios.append(ratio)
         if found is None or ratio < WINDOW_RATIO:
             marks.append(None)
             continue
         marks.append((found, q_end, ratio))
         cursor = q_end + 1
+        if alt is not None:
+            # 选中的不是全局最相似的那条窗口 —— 多半是学生在答案里复述了题目。
+            # 按"念题只发生一次"取靠前的一条，但必须报出来让教师核对边界。
+            warnings.append(
+                f"第 {idx + 1} 题更靠后还有一条更相似的窗口（转写第 {alt[0] + 1} 词起、"
+                f"相似度 {alt[1]:.0%}），已按靠前的那条切分（念题只发生一次，"
+                f"靠后的多半是答案里的复述）——请人工核对边界：{question[:40]}…")
         if len(targets) < 3:
             # 放开了短题目的窗口下限，代价是「1–2 词的题目」本身就属于弱证据：答案里出现
             # 同形词（`and you` / `why`）也能拿到 100% 对齐。这是放宽窗口后新引入的误判面，

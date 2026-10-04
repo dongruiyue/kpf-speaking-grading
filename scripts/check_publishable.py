@@ -5,7 +5,7 @@
 不联网、不装包、不改任何文件。
 
 检查项
-  1. 真实学生姓名 · 真实班号  黑名单一行一条（`#` 注释）。黑名单查找顺序：
+  1. 真实学生姓名 · 真实班号  黑名单一行一条（`#` 注释）。**文件名与文件内容都扫**。黑名单查找顺序：
                              ① `~/.kpf-speaking/publishable-denylist.txt`（私有，住仓库外）
                              ② `scripts/publishable-denylist.example.txt`（仓库内示例）
   2. 个人绝对路径与用户名    家目录绝对路径（macOS 那种 `/`+`Users`+`/` 开头）、本机用户名
@@ -170,6 +170,26 @@ def iter_candidate_files(root: Path, skip: set[Path]):
     return files, unreadable, source
 
 
+def check_path_name(rel: str, denylist: list[str]) -> list[str]:
+    """按**路径**判脱敏：黑名单词 / 个人绝对路径 / 本机用户名。
+
+    为什么必须单列：内容扫描只看得到**文本文件里面**写了什么。一个叫
+    `学生真名示例-作业.json` 的文件哪怕内容只有 `{}`，文件名也照样把姓名公开出去了
+    （外审 2026-10-04 复现：该姓名在示例黑名单里，闸门仍 exit 0）。所以每一个待提交
+    路径都要过一遍这三项，**包括读不出 UTF-8、进不了内容扫描的那些**。
+    """
+    hits: list[str] = []
+    for word in denylist:
+        if word in rel:
+            hits.append(f"{rel}: 0: 文件名里出现黑名单词「{word}」："
+                        f"真实姓名/班号，改成匿名代号（学生甲 / FCE-A）")
+    if HOME_MARK in rel:
+        hits.append(f"{rel}: 0: 路径里出现个人绝对路径「{HOME_MARK}」：换成相对路径或 ~ 占位")
+    if USERNAME in rel:
+        hits.append(f"{rel}: 0: 路径里出现本机用户名「{USERNAME}」：换成匿名占位")
+    return hits
+
+
 def check_av_name(path: Path, rel: str) -> list[str]:
     """第 4 项里**按文件名**判的那一半：候选文件自己的扩展名是音视频就算命中。
 
@@ -287,13 +307,14 @@ def main() -> None:
               f"它们**只做了文件名检查**；{source}；黑名单文件本身不扫）")
 
     hits: list[str] = []
-    for path in files:
+    # 路径级检查（黑名单词 / 家目录路径 / 用户名 / 音视频扩展名）对**每一个**待提交文件都跑，
+    # 包括读不出 UTF-8、进不了内容扫描的那些 —— 这些都不需要读内容就能判出来。
+    for path in [*files, *unreadable]:
         rel = str(path.relative_to(root))
+        hits.extend(check_path_name(rel, denylist))
         hits.extend(check_av_name(path, rel))
-        hits.extend(scan_file(path, rel, denylist))
-    for path in unreadable:
-        # 内容扫不了（二进制），但**文件名与扩展名照样要查**——否则一个 .wav 就是盲区
-        hits.extend(check_av_name(path, str(path.relative_to(root))))
+    for path in files:
+        hits.extend(scan_file(path, str(path.relative_to(root)), denylist))
     hits.extend(check_repo_denylist(root))
     venv_hits, venv_note = check_venv_tracked(root)
     hits.extend(venv_hits)

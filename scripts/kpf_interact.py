@@ -36,6 +36,9 @@ B 组（需要说话人归属；分不出来时必须明说，不许硬凑）
     它有两个用途：标定两条归属带；以及做硬门槛——两个锚点若落在同一簇，
     说明声学上分不开两位考生。
   - **分离质量差就不硬分**：见下面门槛。不达标只报 A 组，并写明"考官提示次数本次未测"。
+  - **`--speakers 2`（考官 + 一位考生）不做说话人归属、只出 A 组指标**：本工具只实现了
+    「区分两位考生」这一条归属路径（G2 要两个自我介绍锚点），考生侧在 `--speakers 3` 下
+    才切成两簇。这个模式下 G1 记「untested」并写明原因，不会伪装成"可分出两位考生"。
 
 可靠性门槛（两把都要过；数值都写进报告，便于复核）
 ------------------------------------------------
@@ -622,15 +625,31 @@ def evaluate_gates(clusters: list[dict], anchors: list[dict], args) -> dict:
     need = max(1, speakers - 1)                    # 考生侧应切的簇数
     boundaries = []
     g1_notes = []
+    mode_note = None                               # 非 None：本模式不做归属，理由写这里
     # **结构前置条件：簇本身不够就没有"间隙"可比。**
     # 旧实现在只有 1 簇时下面那个 zip 一次都不走 → g1_notes 为空 → `g1_status = "pass"`，
     # 于是"只切出一个人"也会被判成"声学上可分出两位考生"，考官提示次数还会被标成"已测"
     # （外审 2026-10-04 用单簇输入复现）。要区分说话人，至少得有 2 簇才谈得上比较。
-    if len(clusters) < max(2, need):
+    if need < 2:
+        # `--speakers 2` = 考官 + 一位考生：考生侧只有一簇是**设计如此**，不是聚类失败。
+        # 但本工具只实现了"区分两位考生"这一条归属路径（G2 要两个自我介绍锚点），
+        # 所以这个模式**不做**考官/考生的声学归属、B 组指标不产出。
+        # （外审 2026-10-04 指出：上一版的硬门槛修掉了单簇误判，却把这条本来能跑的模式
+        # 一并锁死了 —— 收窄可以，但要说清"为什么没有"，而不是含糊地报 fail。）
+        g1_status = "untested"
+        mode_note = (f"--speakers {speakers} 只设一位考生：考生侧本来就只切出 "
+                     f"{len(clusters)} 簇，这是设计如此、不是聚类失败。本工具只实现"
+                     f"「区分两位考生」这一条归属路径（G2 需要两个自我介绍锚点），"
+                     f"所以这个模式不做考官/考生的声学归属，B 组指标不产出")
+        g1_notes.append(mode_note)
+    elif len(clusters) < 2:
+        g1_status = "fail"
         g1_notes.append(
             f"考生侧只切出 {len(clusters)} 簇（--speakers {speakers} → 需要 {need} 簇，"
             f"而且要区分说话人至少得有两簇可比）→ 没有可比较的相邻簇，"
             f"结构上不足以区分说话人")
+    else:
+        g1_status = "pass"
     for a, b in zip(clusters, clusters[1:]):
         gap = b["center"] - a["center"]
         sep = gap / (a["sd"] + b["sd"]) if (a["sd"] + b["sd"]) > 0 else float("inf")
@@ -647,7 +666,8 @@ def evaluate_gates(clusters: list[dict], anchors: list[dict], args) -> dict:
             if share < args.min_share:
                 why.append(f"最小簇占比 {share:.0%} < {args.min_share:.0%}")
             g1_notes.append(f"簇{a['cid']}→簇{b['cid']}：" + "；".join(why))
-    g1_status = "pass" if not g1_notes else "fail"
+    if g1_notes and g1_status == "pass":
+        g1_status = "fail"
 
     g2 = {"status": "untested", "note": "", "lo": None, "hi": None, "clusters": None}
     if len(anchors) < 2:
@@ -679,7 +699,7 @@ def evaluate_gates(clusters: list[dict], anchors: list[dict], args) -> dict:
                           f"≥ {args.min_anchor_diff:.1f} Hz")
     separable = (g1_status == "pass") and (g2["status"] != "fail")
     return {"g1": {"status": g1_status, "boundaries": boundaries, "notes": g1_notes},
-            "g2": g2, "separable": bool(separable)}
+            "g2": g2, "separable": bool(separable), "mode_note": mode_note}
 
 
 def assign_turns(turns: list[dict], exam_idx: set[int], clusters: list[dict],
@@ -999,9 +1019,10 @@ def analyze(args) -> dict:
 
     verdict = {
         "separable": gates["separable"],
-        "reason": ("声学上可分出两位考生"
-                   if gates["separable"] else
-                   "说话人无法可靠区分 → 只报 A 组；考官提示次数本次未测"),
+        "reason": (gates.get("mode_note") or
+                   ("声学上可分出两位考生"
+                    if gates["separable"] else
+                    "说话人无法可靠区分 → 只报 A 组；考官提示次数本次未测")),
         "prompts_tested": bool(gates["separable"]),
     }
     return {"transcript": str(transcript_path), "media": args.media, "media_note": media_note,
@@ -1332,7 +1353,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("transcript", help="kpf_asr.py 产出的转写 JSON")
     p.add_argument("--media", default=None, help="原始音/视频（给不出就只报 A 组指标）")
     p.add_argument("--speakers", type=int, default=3,
-                   help="录音里有几个人（默认 3 = 考官 + 2 考生；支持 2–4）")
+                   help="录音里有几个人（默认 3 = 考官 + 2 考生；支持 2–4）。"
+                        "**2 = 考官 + 一位考生：这个模式不做说话人归属、只出 A 组指标**"
+                        "（本工具只实现「区分两位考生」这一条归属路径，G2 要两个自我介绍锚点）")
     p.add_argument("--silence", type=float, default=SILENCE_MIN, help=f"沉默阈值（默认 {SILENCE_MIN}）")
     p.add_argument("--out", default=None, help="markdown 报告路径（默认 <转写名>-互动证据.md）")
     p.add_argument("--json", dest="json_out", default=None, help="机器可读结果的路径")
