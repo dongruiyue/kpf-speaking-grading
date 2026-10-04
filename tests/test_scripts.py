@@ -33,7 +33,7 @@ if not (SCRIPTS / "kpf_analyze.py").is_file():
     sys.exit(2)
 sys.path.insert(0, str(SCRIPTS))
 
-from kpf_analyze import (AMBIG_GAP, _match_question, norm,  # noqa: E402
+from kpf_analyze import (AMBIG_ABS, AMBIG_GAP, _match_question, norm,  # noqa: E402
                          render, split_by_questions)
 from kpf_interact import InputError, evaluate_gates, load_transcript  # noqa: E402
 
@@ -247,9 +247,66 @@ def case_analyze_match_boundaries() -> None:
           "normally" in words3[found3:q_end3 + 1],
           f"实际选中 {' '.join(words3[found3:q_end3 + 1])}")
     check("3c 另一处候选被报出来（于是会标待确认）", amb3 is not None, f"实际 {amb3}")
-    check("3c 前提自检：两处相差在 AMBIG_GAP 之内",
-          amb3 is not None and abs(ratio3 - amb3[1]) <= AMBIG_GAP,
+    check("3c 前提自检：命中「待确认」两条判据之一",
+          amb3 is not None and (abs(ratio3 - amb3[1]) <= AMBIG_GAP or amb3[1] >= AMBIG_ABS),
           f"构造漂了：{ratio3:.3f} vs {amb3!r}")
+
+    # 3d：外审 2026-10-04 第三轮的第 1 条 —— **光看分差还不够**。念题差两个词（~0.75），
+    #     答案里完整复述（1.0），分差远超 AMBIG_GAP；只比"分差接近"就会静默选中复述。
+    #     现在另一处候选只要**自身够像**（≥ AMBIG_ABS）也标待确认。
+    sentence4 = ("About weekends What do you like to do in your free days in summer I think "
+                 "What do you usually do in your free time in summer I usually play football")
+    tokens4 = tokens_of(sentence4)
+    q4 = "What do you usually do in your free time in summer?"
+    _f4, _e4, ratio4, amb4 = _match_question(tokens4, [norm(w) for w in q4.split()], 0)
+    check("3d 分差很大但另一处自身够像 → 也报出来", amb4 is not None, f"实际 {amb4}")
+    check("3d 前提自检：分差确实超过 AMBIG_GAP（走的是 AMBIG_ABS 那条）",
+          amb4 is not None and (ratio4 - amb4[1]) > AMBIG_GAP,
+          f"构造漂了：{ratio4:.3f} vs {amb4!r}")
+    check("3d 前提自检：另一处达到 AMBIG_ABS",
+          amb4 is not None and amb4[1] >= AMBIG_ABS, f"实际 {amb4!r}")
+    spans4, warns4 = split_by_questions(tokens4, [q4])
+    check("3d 该题被标成边界待确认", bool(spans4[0][3]), f"实际 {spans4[0][3]!r}")
+    md4 = render(_payload(tokens4), spans4, warns4, _Stub())
+    check("3d 底稿不再静默给出该题数字", "| Q1‡ | 待确认 |" in md4, "仍在输出答词数")
+
+    # 3e：外审第三轮的第 2 条 —— **未定位题的推断区间**用的上界也是"下一道已定位题的题干
+    #     起点"，所以那道题待确认时，这个推断区间同样不能出数、不能进合计。
+    sentence5 = ("Well hello there I like music What do you do at weekends normally "
+                 "What do you do at weekends I play football every Saturday and Sunday")
+    tokens5 = tokens_of(sentence5)
+    q5 = ["Where do you usually go on holiday in winter?", "What do you do at weekends?"]
+    spans5, warns5 = split_by_questions(tokens5, q5)
+    check("3e 第 1 题未定位（对照）", spans5[0][0] is None, "第 1 题反而定位上了")
+    check("3e 未定位的推断区间也标成待确认", bool(spans5[0][3]), f"实际 {spans5[0][3]!r}")
+    check("3e 第 2 题本身标成待确认", bool(spans5[1][3]), f"实际 {spans5[1][3]!r}")
+    md5 = render(_payload(tokens5), spans5, warns5, _Stub())
+    check("3e 合计把推断区间排除在外", "未计入" in md5, "推断区间仍进了合计")
+    check("3e 未定位那题不再输出推断词数", "| Q1† |" not in md5,
+          "底稿仍在输出 `Q1† | N` 这种推断数字")
+
+    # 3f：两条判据里的 **AMBIG_GAP 那一支** —— 两处都"不太像"（候选自身低于 AMBIG_ABS），
+    #     但分差很小，谁是真的念题从文本上分不出来，同样要标待确认。
+    #     构造：目标 20 词；答案里较早的一处错 8 个词（0.65），真正念题错 7 个词（0.733）。
+    base = ("what is the best way to travel around the place where you live when you go away "
+            "on holiday").split()
+    filler = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel", "india"]
+
+    def variant(changed: int, offset: int) -> list[str]:
+        idx = set(range(offset, offset + changed))
+        return [filler[i % len(filler)] if i in idx else w for i, w in enumerate(base)]
+
+    sentence6 = " ".join(["well", "hello", "there"] + variant(8, 0) + ["I", "think"]
+                         + variant(7, 1) + ["I", "usually", "play", "football"])
+    tokens6 = tokens_of(sentence6)
+    targets6 = [norm(w) for w in base]
+    found6, _e6, ratio6, amb6 = _match_question(tokens6, targets6, 0)
+    check("3f 分差接近时也报出来", amb6 is not None, f"实际 {amb6}")
+    check("3f 前提自检：分差 ≤ AMBIG_GAP，且候选自身 < AMBIG_ABS（走的是分差那支）",
+          amb6 is not None and abs(ratio6 - amb6[1]) <= AMBIG_GAP and amb6[1] < AMBIG_ABS,
+          f"构造漂了：{ratio6:.3f} vs {amb6!r}")
+    spans6, warns6 = split_by_questions(tokens6, [" ".join(base) + "?"])
+    check("3f 该题被标成边界待确认", bool(spans6[0][3]), f"实际 {spans6[0][3]!r}")
 
 
 # --------------------------------------------------------------------------

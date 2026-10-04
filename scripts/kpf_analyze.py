@@ -79,7 +79,18 @@ def span_metrics(tokens: list[dict]) -> dict:
 
 
 WINDOW_RATIO = 0.55  # 题目对齐的最低相似度
-AMBIG_GAP = 0.15     # 两处候选相差小于它就算"说不清"，标边界待确认（见 _match_question）
+# 题目对齐的"说不清"判据（见 _match_question 第 4 条）：命中任一条就标边界待确认。
+# 两个数都有出处，不是拍的：
+#   AMBIG_GAP：两处候选的**分差**；合成用例里出现过的分差是 0.09–0.147。
+#   AMBIG_ABS：某一处候选**自身够像**。0.75 这个数来自两处实测 ——
+#     ① 项目自己踩过的坑：阈值放宽到 0.75 时，前面一个"勉强像"的位置会抢掉后面更像的
+#        真位置（实测把答案段切少了 4 个词），也就是说 0.75 这一档确实会被误当成念题；
+#     ② 两份真实作业 9 道题里，与最佳窗口**不重叠**的第二名最高只有 0.625，
+#        0.75 留了 0.125 的余量，不会把真实数据误标。
+# 只用 AMBIG_GAP 会漏：外审 2026-10-04 第二轮的合成用例里，念题 0.8、答案里的复述 1.0，
+# 分差 0.2 超出余量，于是**静默**选了复述、开头的回答从该题答段消失。
+AMBIG_GAP = 0.15
+AMBIG_ABS = 0.75
 
 
 def _trim_insertions(tokens: list[dict], targets: list[str], i: int, j: int,
@@ -127,10 +138,15 @@ def _match_question(tokens: list[dict], targets: list[str], start: int,
          全局最佳只有 0.9 时，"全局最佳 − 0.15"这种余量会把门槛压到 0.75，正好落回
          "前面一个勉强像的位置抢掉后面真位置"那个老坑 —— 实测选中的是上一题答案里的
          一句话（0.783），真正念题的那处（0.909）被跳过。
-       - 与选中窗口**不重叠**、相似度落在 `AMBIG_GAP`(0.15) 之内的候选存在时，把它的
-         位置一并返回；调用方据此把该题标成 `边界待确认` —— **这一题的精确答词数与语速
-         先不输出**（`split_by_questions` / `render` 负责落实），底稿里把两处候选都打出来，
-         由教师听音频定边界。这比"猜一个再小声警告"诚实（见 references/01-task-map.md 5.1）。
+       - **是否"说不清"看两条，命中任一条就标待确认**：① 分差接近（`分差 ≤ AMBIG_GAP`）；
+         ② 另一处候选**自身够像**（`相似度 ≥ AMBIG_ABS`）。**只比"分差"是不够的** ——
+         念题 0.8、答案里的复述 1.0 时分差 0.2，超出一个 0.15 的余量，于是会静默选中
+         复述、开头的回答从该题答段消失（外审 2026-10-04 第二轮用合成转写复现）。
+         两个常数的出处写在文件头 `AMBIG_GAP` / `AMBIG_ABS` 的注释里。
+       - 命中之后：把另一处候选的位置一并返回；调用方据此把该题标成 `边界待确认` ——
+         **这一题的精确答词数与语速先不输出**（`split_by_questions` / `render` 负责落实），
+         底稿里把两处候选都打出来，由教师听音频定边界。这比"猜一个再小声警告"诚实
+         （见 references/01-task-map.md 5.1）。
     5. **首尾的"纯插入"要剪掉**（见 `_trim_insertions`）——窗口两端多出来的词多半是相邻
        答案的尾巴串了进来（`diff_reading` 早就在展示层这么做了）。只剪 `insert`，不剪
        `replace`：学生把念题的第一个词念错（`Which` 念成 `We each`）时那是替换不是插入，
@@ -181,7 +197,7 @@ def _match_question(tokens: list[dict], targets: list[str], start: int,
         if c[0] == chosen[0]:
             continue
         overlaps = not (c[1] < chosen[0] or c[0] > chosen[1])
-        if overlaps or c[2] < overall[2] - AMBIG_GAP:
+        if overlaps or (c[2] < overall[2] - AMBIG_GAP and c[2] < AMBIG_ABS):
             continue
         ambiguous = (c[0], c[2])        # 取最早的那条（best_at 按 i 升序）
         break
@@ -319,16 +335,23 @@ def split_by_questions(tokens: list[dict], questions: list[str]) -> tuple[list[d
         diff = f"{diff_reading(question, spoken)}（题目对齐度 {ratio:.0%}）"
         spans.append((tokens[found:q_end + 1], tokens[q_end + 1:nxt], diff, pending.get(idx, "")))
 
-    # 下一题的题干边界待确认 → 本题答案的末边界也跟着不确定，同样不输出精确数字
-    for idx in range(len(spans) - 1):
-        if not pending.get(idx + 1) or pending.get(idx):
+    # 末边界传播：**本题答案的末边界 = 它之后第一道"已定位题"的题干起点**（未定位题拿到的
+    # 推断区间用的也是这个上界）。所以那道题一旦待确认，本题的边界跟着不确定 → 同样不输出
+    # 精确数字、也不计入合计。**必须右到左做**，否则漏掉链式传播（Q3 待确认 → Q2 待确认 →
+    # Q1 也待确认：Q1 的末边界取的是 Q2 的题干起点，而 Q2 的起点本身还没定）。
+    # 外审 2026-10-04 第二轮就是在这里漏的：旧实现跳过 `marks[idx] is None` 的题，于是
+    # "开头那道未定位题的推断区间"照样输出 `Q1† | 7` 并计入答题词数合计。
+    for idx in range(len(spans) - 1, -1, -1):
+        if pending.get(idx) or spans[idx][1] is None:
+            continue           # 已经待确认，或本来就没有数字可扣
+        nxt_located = next((j for j in range(idx + 1, len(spans)) if marks[j] is not None), None)
+        if nxt_located is None or not pending.get(nxt_located):
             continue
-        if marks[idx] is None or spans[idx][1] is None:
-            continue
-        pending[idx] = (f"下一题（第 {idx + 2} 题）的题干边界待确认，"
-                        f"本题答案的末边界随之不确定，精确答词数与语速**先不输出**")
+        pending[idx] = (f"本题答案的末边界取的是第 {nxt_located + 1} 题的题干起点，"
+                        f"而那一题的边界待确认 → 本题的边界随之不确定，"
+                        f"精确答词数与语速**先不输出**")
         spans[idx] = (spans[idx][0], spans[idx][1], spans[idx][2], pending[idx])
-        warnings.append(f"第 {idx + 1} 题的答案末边界取决于第 {idx + 2} 题的题干起点，"
+        warnings.append(f"第 {idx + 1} 题的答案末边界取决于第 {nxt_located + 1} 题的题干起点，"
                         f"而后者待确认 → 本题的答词数与语速也不计入统计。")
     return spans, warnings
 
