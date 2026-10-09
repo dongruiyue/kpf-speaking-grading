@@ -379,7 +379,9 @@ def main() -> None:
         print(f"[对齐提示] {w}", file=sys.stderr)
 
     per_q, all_words, errors = [], {}, []
-    for qi, (qspan, _aspan, _diff) in enumerate(spans, 1):
+    # 具名字段，不裸解包：spans 加过字段，裸解包会让本条路静默降级（见 kpf_analyze.QSpan）
+    for qi, sp in enumerate(spans, 1):
+        qspan = sp.question
         if not qspan:
             per_q.append({"qi": qi, "ok": False})
             continue

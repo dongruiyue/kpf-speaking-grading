@@ -354,12 +354,47 @@ def case_interact_transcript_schema() -> None:
         check("段边界缺 end → InputError", False, f"抛的是 {type(exc).__name__}")
 
 
+# --------------------------------------------------------------------------
+# 用例 5：spans 的消费点必须用具名字段
+#   QSpan 加过一次字段（pending，2026-10-04 的"边界待确认"），当时三个**不在测试覆盖内**
+#   的消费点还在裸解包 → 讯飞那条发音评分每次跑都静默降级，直到三天后跑真实作业才发现。
+# --------------------------------------------------------------------------
+
+def case_span_consumers_use_named_fields() -> None:
+    import re
+    print("\n[5] spans 消费点：必须用具名字段，不许裸解包")
+
+    spans, _w = split_by_questions(tokens_of("What music do you like I like jazz"),
+                                   ["What music do you like?"])
+    check("split_by_questions 返回具名字段",
+          hasattr(spans[0], "question") and hasattr(spans[0], "pending"),
+          f"返回的是 {type(spans[0]).__name__}")
+
+    bad: list[str] = []
+    for path in sorted(SCRIPTS.glob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        # 只查**真的会拿到 QSpan 的那些文件**：kpf_interact.py 里也有个叫 spans 的变量，
+        # 装的是词下标区间、不是 QSpan，别误伤
+        if "split_by_questions" not in text and "split_auto" not in text:
+            continue
+        for n, line in enumerate(text.splitlines(), 1):
+            if not re.search(r"\bin\s+(enumerate\(\s*)?spans\b", line) or " in " not in line:
+                continue
+            head = line.split(" in ", 1)[0].split("for ", 1)[-1]
+            # 允许 `for qi, sp in ...`；拦 `for i, (qspan, aspan, _d, note) in ...`
+            # 与 `for qspan, aspan, diff, note in spans:`
+            if re.search(r"\([^)]*,[^)]*\)", head) or head.count(",") >= 2:
+                bad.append(f"{path.name}:{n}")
+    check("没有消费点裸解包 spans", not bad, f"这些地方仍在裸解包：{bad}")
+
+
 def main() -> None:
     print("KPF 口语批改 · 脚本级回归（纯标准库、离线）")
     for case in (case_publishable_gate_checks_paths,
                  case_interact_gate_structure,
                  case_analyze_match_boundaries,
-                 case_interact_transcript_schema):
+                 case_interact_transcript_schema,
+                 case_span_consumers_use_named_fields):
         case()
 
     print()

@@ -20,6 +20,23 @@ import json
 import re
 import sys
 from pathlib import Path
+from typing import NamedTuple
+
+
+class QSpan(NamedTuple):
+    """一道题的切分结果。
+
+    **为什么用具名字段而不是裸元组**：这个结构已经加过一次字段（`pending`，2026-10-04 的
+    "边界待确认"），而裸元组让**每一个消费点**都悄悄变成"解包个数不对"。当时漏掉了三个
+    不在测试覆盖内的消费点（`kpf_pronounce` / `kpf_xfyun` / `kpf_ise_stream`），讯飞那条
+    发音评分直接降级、直到三天后跑真实作业才发现。换成具名字段之后，消费点写
+    `span.question` / `span.answer`，再加字段也不会波及它们。
+    """
+
+    question: list[dict] | None      # 题干 token；未定位时为 None
+    answer: list[dict] | None        # 答案 token；推断不出时为空
+    note: str                        # 念题与标准题目的差异，或"未定位"的说明
+    pending: str                     # 非空 = 边界待确认：该题精确数字不予输出
 
 PAUSE_MIN = 0.4          # 计入停顿的间隔（秒）
 PAUSE_LONG = 1.0         # 长停顿阈值
@@ -353,7 +370,9 @@ def split_by_questions(tokens: list[dict], questions: list[str]) -> tuple[list[d
         spans[idx] = (spans[idx][0], spans[idx][1], spans[idx][2], pending[idx])
         warnings.append(f"第 {idx + 1} 题的答案末边界取决于第 {nxt_located + 1} 题的题干起点，"
                         f"而后者待确认 → 本题的答词数与语速也不计入统计。")
-    return spans, warnings
+    # 出口统一包成 QSpan：外形仍是元组（旧的下标访问照样能用），但**具名字段**是新消费点
+    # 该用的方式 —— 再加字段时不会波及它们（见 QSpan 的 docstring）
+    return [QSpan(*s) for s in spans], warnings
 
 
 def diff_reading(standard: str, spoken: list[str]) -> str:
@@ -429,7 +448,7 @@ def split_auto(tokens: list[dict]) -> tuple[list[dict], list[str]]:
             a_start += 1
         a_end = (starts[k + 1] - 1) if k + 1 < len(starts) else len(tokens) - 1
         spans.append((tokens[s:q_end + 1], tokens[a_start:a_end + 1], "", ""))
-    return spans, ["自动切分结果，请人工核对每条边界是否落在题目/答案交界处。"]
+    return [QSpan(*s) for s in spans], ["自动切分结果，请人工核对每条边界是否落在题目/答案交界处。"]
 
 
 def low_confidence_points(tokens: list[dict]) -> list[dict]:
@@ -501,7 +520,8 @@ def render(payload: dict, spans: list, warnings: list[str], args) -> str:
     L.append("")
     L.append("| 题 | 答词数 | 答段秒 | 语速(词/分) | 停顿≥0.4s | 其中≥1s | 最长停顿 | 填充词 |")
     L.append("|---|---|---|---|---|---|---|---|")
-    for i, (qspan, aspan, _d, note) in enumerate(spans, 1):
+    for i, sp in enumerate(spans, 1):
+        qspan, aspan, note = sp.question, sp.answer, sp.pending
         if note:
             # 边界待确认：这一题的精确答词数/语速/停顿**一个都不输出**，只标明原因。
             # 光是"给个数再小声警告"不算诚实 —— 数字会被引用，警告不会。
@@ -533,7 +553,8 @@ def render(payload: dict, spans: list, warnings: list[str], args) -> str:
     L.append("> 念题差异只作线索：对齐窗口可能把相邻答案的尾部算进题干，逐题词数有 ±2–4 词的边界误差，"
              "**不得据此单独下结论**（见 references/01-task-map.md 第 5.1 节）。")
     L.append("")
-    for i, (qspan, aspan, diff, note) in enumerate(spans, 1):
+    for i, sp in enumerate(spans, 1):
+        qspan, aspan, diff, note = sp.question, sp.answer, sp.note, sp.pending
         L.append(f"### Q{i}")
         L.append("")
         if qspan:

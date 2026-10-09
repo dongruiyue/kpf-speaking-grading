@@ -75,7 +75,10 @@ def provider_xfyun(payload: dict, media: Path, questions: Path | None,
     spans, warnings = split_by_questions(payload["words"], qs)
 
     per_q, all_words, errors = [], {}, []
-    for qi, (qspan, _a, _d) in enumerate(spans, 1):
+    # 具名字段，不裸解包：spans 这个结构加过字段（QSpan.pending），裸解包会让本条路
+    # 静默降级 —— 2026-10-04 就是这样坏了三天才被发现（见 kpf_analyze.QSpan）
+    for qi, sp in enumerate(spans, 1):
+        qspan = sp.question
         if not qspan:
             per_q.append({"qi": qi, "ok": False, "error": "题目未定位"})
             continue

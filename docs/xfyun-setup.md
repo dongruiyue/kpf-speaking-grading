@@ -148,6 +148,7 @@ echo "What kind of music do you listen to in your free time? Why?" > /tmp/one.tx
 | `header.code=10163 unknown field` | `result` 放错了层级 | 同上 |
 | 握手阶段就断 / 401 / 服务端不回任何帧 | ① 服务**没开通** ② APPID 与 key 不是同一个应用 ③ **实名认证没做** | 回控制台逐项核第二节 |
 | `[降级] xfyun 不可用 …` 后接 `[降级] local …` | 讯飞没配好，链子在往后降（正常行为） | 看前面那条 xfyun 的原因 |
+| `connecting through a SOCKS proxy requires python-socks` | **系统的 SOCKS 代理被自动读到了**（macOS 上 `scutil --proxy` 能看到；httpx / websockets 会读它），而环境里没装 `python-socks` | 讯飞是**国内接口**，本来就该直连，绕过代理跑即可：`NO_PROXY='*' no_proxy='*' python …`。要长期用就把 `ws-api.xfyun.cn` 加进系统代理的例外列表（Clash 这类客户端的"绕过代理"设置里），或 `pip install python-socks`（**不推荐**：那会把讯飞流量也送进代理） |
 | 全部降级 → `provider=manual` | 没有任何可用引擎 | 发音分由老师手填（`发音.md` 里有抽听点位表） |
 
 ---
